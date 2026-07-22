@@ -1,0 +1,21 @@
+# Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's Opal family HW JPEG encoder peripheral interface
+
+compatible: "qcom,qcc74x-jpeg"
+
+include: [base.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  clocks:
+    required: true
+
+  interrupts:
+    required: true
+
+  resets:
+    required: true

@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+if SOC_FAMILY_QCOM_QCC7XX
+
+config GEN_ISR_TABLES
+	default y
+
+config GEN_SW_ISR_TABLE
+	default y
+
+config GEN_IRQ_VECTOR_TABLE
+	default n
+
+config DYNAMIC_INTERRUPTS
+	default y
+
+config ISR_STACK_SIZE
+	default 2048
+
+config ATOMIC_OPERATIONS_C
+	default y
+
+config SYS_CLOCK_TICKS_PER_SEC
+	default 1000
+
+config MINIMAL_LIBC_OPTIMIZE_STRING_FOR_SIZE
+	default n
+
+config DCACHE_LINE_SIZE
+	int
+	default $(dt_node_int_prop_int,/cpus/cpu@0,d-cache-line-size)
+
+config ICACHE_LINE_SIZE
+	int
+	default $(dt_node_int_prop_int,/cpus/cpu@0,i-cache-line-size)
+
+if BOOTLOADER_MCUBOOT
+
+config HAS_FLASH_LOAD_OFFSET
+	default y
+
+config MCUBOOT_GENERATE_UNSIGNED_IMAGE
+	default y
+
+config MCUBOOT_GENERATE_CONFIRMED_IMAGE
+	default y
+
+config ROM_START_OFFSET
+	default 0x20
+
+endif # BOOTLOADER_MCUBOOT
+
+endif # SOC_FAMILY_QCOM_QCC7XX

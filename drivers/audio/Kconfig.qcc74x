@@ -1,0 +1,68 @@
+# Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+#
+# Audio ADC options
+#
+menuconfig AUDIO_ADC
+	bool "Audio Analog-to-Digital Converter (ADC) drivers"
+	help
+	  Enable audio ADC (Audio Analog to Digital Converter) driver configuration.
+
+if AUDIO_ADC
+
+config AUDIO_ADC_INIT_PRIORITY
+	int "Audio ADC init priority"
+	default KERNEL_INIT_PRIORITY_DEVICE
+	help
+	  Audio ADC driver device initialization priority.
+
+module = AUDIO_ADC
+module-str = audio ADC
+source "subsys/logging/Kconfig.template.log_config"
+
+config AUDIO_ADC_QCC74X
+	bool "Opal audio ADC driver"
+	default y
+	depends on AUDIO
+	depends on AUDIO_ADC
+	depends on DT_HAS_QCOM_QCC74X_AUDIO_ADC_ENABLED
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	select DMA
+	help
+	  Enables Opal audio ADC driver.
+
+endif # AUDIO_ADC
+
+#
+# Audio DAC options
+#
+menuconfig AUDIO_DAC
+	bool "Audio Digital-to-Analog Converter (DAC) drivers"
+	help
+	  Enable audio DAC (Audio Digital to Analog Converter) driver configuration.
+
+if AUDIO_DAC
+
+config AUDIO_DAC_INIT_PRIORITY
+	int "Audio DAC init priority"
+	default KERNEL_INIT_PRIORITY_DEVICE
+	help
+	  Audio DAC driver device initialization priority.
+
+module = AUDIO_DAC
+module-str = audio DAC
+source "subsys/logging/Kconfig.template.log_config"
+
+config AUDIO_DAC_QCC74X
+	bool "Opal audio DAC driver"
+	default y
+	depends on AUDIO
+	depends on AUDIO_DAC
+	depends on DT_HAS_QCOM_QCC74X_AUDIO_DAC_ENABLED
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	select DMA
+	help
+	  Enables Opal audio DAC driver.
+
+endif # AUDIO_DAC

@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Generic QC7XX PSRAM memory region
+
+compatible: "qc7xx-psram"
+
+include: base.yaml
+
+properties:
+  clocks:
+    required: true
+
+  psram-clk-div:
+    type: int
+    default: 0
+    description: PSRAM clock divider value.

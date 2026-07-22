@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's rtc
+
+compatible: "qualcomm,qc7xx-rtc"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  clock-source:
+    type: int
+    default: 0
+    description: Clock source of RTC.

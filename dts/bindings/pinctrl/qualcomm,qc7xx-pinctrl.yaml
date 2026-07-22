@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+    Qualcomm's pin controller is in charge of controlling pin configurations, pin
+    functionalities and pin properties as defined by pin states. In its turn, pin
+    states are composed by groups of pre-defined pin muxing definitions and user
+    provided pin properties.
+compatible: "qualcomm,qc7xx-pinctrl"
+
+include: base.yaml
+
+child-binding:
+  description: |
+    Qualcomm pin controller pin configuration state nodes.
+  child-binding:
+    description:
+      Qualcomm pin controller pin configuration group.
+
+    include:
+      - name: pincfg-node.yaml
+        property-allowlist:
+          - bias-disable
+          - bias-pull-down
+          - bias-pull-up
+          - drive-push-pull
+          - drive-open-drain
+          - drive-strength
+          - input-enable
+          - input-schmitt-enable
+          - output-enable
+          - output-high
+          - output-low
+
+    properties:
+      pinmux:
+        required: true
+        type: array
+        description: |
+          Each array element represents pin muxing information of an individual
+          pin. The array elements are pre-declared macros taken from Qualcomm's
+          HAL.

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: |
+    Qualcomm Opal family DAC controller.
+    Two GPIO pads are capable of being DACs
+
+    QCC74x pads
+      - GPIO3 as DAC channel 1
+      - GPIO2 as DAC channel 2
+
+compatible: "qcom,qcc74x-dac"
+
+include: [dac-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  clk_div:
+    type: int
+    required: true
+    description: DAC clock division ratio.
+      Possible values are 8k, 16k, 32k, 512k.
+
+  voltage_range:
+    type: int
+    description: DAC output voltage range select
+      - DAC_VOLTAGE_RANGE_200_1200
+      - DAC_VOLTAGE_RANGE_225_1425
+      - DAC_VOLTAGE_RANGE_200_1800
+
+  "#io-channel-cells":
+    const: 1
+
+io-channel-cells:
+  - output

@@ -1,0 +1,21 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+family:
+- name: qcom_qcc7xx
+  series:
+  - name: qcc74x
+    socs:
+    - name: qcc743
+    - name: qcc744
+    - name: qcc748
+  - name: qcc75x
+    socs:
+    - name: qcc75x

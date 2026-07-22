@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+identifier: qcc744m_evk
+name: QCC744M Evaluation Kit
+type: mcu
+arch: riscv
+ram: 480
+toolchain:
+  - zephyr
+supported:
+  - adc
+  - bluetooth
+  - can
+  - clock_control
+  - comparator
+  - counter
+  - crypto
+  - dac
+  - dma
+  - entropy
+  - flash
+  - ethernet
+  - gpio
+  - hwinfo
+  - i2c
+  - i2s
+  - ir
+  - mipi_dbi
+  - net
+  - netif:eth
+  - netif:wifi
+  - nvs
+  - pwm
+  - reset
+  - rtc
+  - sdhc
+  - serial
+  - spi
+  - uart
+  - usart
+  - video
+  - watchdog
+  - wifi
+vendor: qcom

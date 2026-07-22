@@ -1,0 +1,35 @@
+# Copyright (c) 2024 Espressif Systems (Shanghai) Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm SDHC controller
+
+compatible: "qualcomm,qc7xx-sdhc"
+
+include: [sdhc.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  peripheral_name:
+    type: string
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  clocks:
+    required: true
+
+  interrupts:
+    required: true
+
+  bus-width:
+    type: int
+    default: 4
+    description: |
+      The bus width of the SDHC controller. The value should be 1 or 4.
+

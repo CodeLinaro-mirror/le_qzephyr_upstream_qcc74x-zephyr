@@ -1,0 +1,44 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family PWM controller
+
+compatible: "qcom,qcc74x-pwm"
+
+include: [pwm-controller.yaml, pinctrl-device.yaml, reset-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  clocks:
+    required: true
+
+  resets:
+    required: true
+
+  divider:
+    type: int
+    required: true
+    description: 16 bit Clock divider, up to 65535 divisions
+
+  pinctrl-0:
+    required: true
+
+  "#pwm-cells":
+    const: 3
+
+pwm-cells:
+  - channel
+  - period
+  - flags

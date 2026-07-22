@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm QC7xx IPC doorbell for inter-processor signaling
+
+compatible: "qualcomm,qc7xx-ipc"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+  interrupts:
+    required: true
+

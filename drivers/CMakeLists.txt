@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+add_compile_options($<TARGET_PROPERTY:compiler,warning_shadow_variables>)
+add_definitions(-D__ZEPHYR_SUPERVISOR__)
+
+# zephyr-keep-sorted-start
+add_subdirectory(usb)
+
+add_subdirectory_ifdef(CONFIG_ADC adc)
+add_subdirectory_ifdef(CONFIG_AUDIO audio)
+add_subdirectory_ifdef(CONFIG_BT_DRIVERS bluetooth/hci)
+add_subdirectory_ifdef(CONFIG_CACHE cache)
+add_subdirectory_ifdef(CONFIG_CAN can)
+add_subdirectory_ifdef(CONFIG_CLOCK_CONTROL clock_control)
+add_subdirectory_ifdef(CONFIG_COMPARATOR comparator)
+add_subdirectory_ifdef(CONFIG_COUNTER counter)
+add_subdirectory_ifdef(CONFIG_CRYPTO crypto)
+add_subdirectory_ifdef(CONFIG_DAC dac)
+add_subdirectory_ifdef(CONFIG_DMA dma)
+add_subdirectory_ifdef(CONFIG_ENTROPY_GENERATOR entropy)
+add_subdirectory_ifdef(CONFIG_ETH_DRIVER ethernet)
+add_subdirectory_ifdef(CONFIG_FLASH flash)
+add_subdirectory_ifdef(CONFIG_GPIO gpio)
+add_subdirectory_ifdef(CONFIG_HWINFO hwinfo)
+add_subdirectory_ifdef(CONFIG_I2C i2c)
+add_subdirectory_ifdef(CONFIG_I2S i2s)
+add_subdirectory_ifdef(CONFIG_IPM ipm)
+add_subdirectory_ifdef(CONFIG_IR ir)
+add_subdirectory_ifdef(CONFIG_MDIO mdio)
+add_subdirectory_ifdef(CONFIG_MIPI_DBI mipi_dbi)
+add_subdirectory_ifdef(CONFIG_PINCTRL pinctrl)
+add_subdirectory_ifdef(CONFIG_PWM pwm)
+add_subdirectory_ifdef(CONFIG_RESET reset)
+add_subdirectory_ifdef(CONFIG_RTC rtc)
+add_subdirectory_ifdef(CONFIG_SDHC sdhc)
+add_subdirectory_ifdef(CONFIG_SDIO sdio)
+add_subdirectory_ifdef(CONFIG_SERIAL serial)
+add_subdirectory_ifdef(CONFIG_SPI spi)
+add_subdirectory_ifdef(CONFIG_SYSCON syscon)
+add_subdirectory_ifdef(CONFIG_VIDEO video)
+add_subdirectory_ifdef(CONFIG_WATCHDOG watchdog)
+add_subdirectory_ifdef(CONFIG_WIFI wifi)
+# zephyr-keep-sorted-stop

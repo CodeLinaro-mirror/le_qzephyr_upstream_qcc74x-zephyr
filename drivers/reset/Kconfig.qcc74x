@@ -1,0 +1,25 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config RESET_QCC74X
+	bool "Qualcomm Opal RESET driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_RESET_ENABLED
+	depends on SOC_FAMILY_QCOM_QCC7XX
+	help
+	  Enable RESET driver for Opal MCUs.
+
+config RESET_LOG_LEVEL
+	int "Log level for reset controller drivers"
+	default 2
+	range 0 4
+	help
+	  Sets the log level for reset controller drivers.
+	  0=Off, 1=Error, 2=Warning, 3=Info, 4=Debug

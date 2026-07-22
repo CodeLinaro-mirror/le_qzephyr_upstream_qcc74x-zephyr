@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Interrupt controller
+compatible: "qualcomm,qc7xx-intc"
+
+include: [interrupt-controller.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  "#interrupt-cells":
+    const: 3
+
+interrupt-cells:
+  - irq
+  - priority
+  - flags

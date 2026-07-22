@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family UART controller
+
+compatible: "qcom,qcc74x-uart"
+
+include: [uart-controller.yaml, uart-controller-pin-inversion.yaml, pinctrl-device.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  resets:
+    required: true
+
+  clocks:
+    required: true
+
+  dmas:
+    description: |
+      DMA channels for TX and RX operations.
+      First cell specifies the channel number,
+      Second cell specifies the slot
+      Third cell specifies the peripheral FIFO address.
+
+  dma-names:
+    description: |
+      Should be "tx" and "rx" for transmit and receive DMA channels.

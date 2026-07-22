@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm flash controller
+
+compatible: "qualcomm,qc7xx-flash-controller"
+
+include: flash-controller.yaml

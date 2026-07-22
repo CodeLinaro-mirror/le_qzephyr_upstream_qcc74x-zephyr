@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: QC7xx CAM DVP Peripheral interface
+
+compatible: "qualcomm,qc7xx-cam-dvp"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  peripheral_name:
+    type: string
+    required: true
+
+  interrupts:
+    required: true
+
+  clocks:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  source:
+    required: true
+    type: phandle
+    description: Connected source device, i.e. camera sensor
+
+  pixel-clk:
+    type: int
+    description: camera clock frequency
+
+  vsync-invert:
+    type: boolean
+    description: invert vsync signal
+
+  hsync-invert:
+    type: boolean
+    description: invert hsync signal
+
+  data-order-swap:
+    type: boolean
+    description: Camera input data order, The first data is higher-byte
+  

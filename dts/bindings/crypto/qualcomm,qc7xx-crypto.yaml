@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Crypto SHA accelerator.
+
+compatible: "qualcomm,qc7xx-crypto"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

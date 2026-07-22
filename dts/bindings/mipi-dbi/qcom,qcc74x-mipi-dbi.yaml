@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Opal family DBI display controller
+
+compatible: "qcom,qcc74x-mipi-dbi"
+
+include: [mipi-dbi-controller.yaml, pinctrl-device.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  clocks:
+    required: true
+
+  interrupts:
+    required: true
+
+  interrupt-parent:
+    required: true
+
+  reset-gpios:
+    type: phandle-array
+    description: |
+      Reset GPIO pin. Used to reset the display during initialization.
+
+  mipi-mode:
+    type: string
+    description: |
+      MIPI DBI mode in use. These definitions should match those in
+      dt-bindings/mipi_dbi/mipi_dbi.h
+    enum:
+      - "MIPI_DBI_MODE_SPI_3WIRE"
+      - "MIPI_DBI_MODE_SPI_4WIRE"
+      - "MIPI_DBI_MODE_8080_BUS_8_BIT"
+
+  dmas:
+    description: |
+      TX & RX dma specifiers.  Each specifier will have a phandle
+      reference to the dma controller, the channel number, peripheral
+      trigger source, and peripheral fifo address. The channel number
+      is arbitrary but must not be reused. The number of channels
+      available is device dependent.
+
+      For example dmas for TX and RX may look like
+      dmas = <&dma 3  DMA_REQUEST_DBI_TX  DMA_ADDR_DBI_TDR>;
+
+  resets:
+    required: true

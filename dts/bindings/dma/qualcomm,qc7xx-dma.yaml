@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Qualcomm DMA (Direct Memory Access) Node
+
+  General Direct Memory Access (GDMA) is a feature that allows
+  peripheral-to-memory, memory-to-peripheral, and memory-to-memory
+  data transfer at a high speed.
+
+compatible: "qualcomm,qc7xx-dma"
+
+include: dma-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  peripheral_name:
+    type: string
+    required: true
+
+  interrupts:
+    required: true
+
+  dma-channels:
+    required: true
+
+  clocks:
+    required: true
+
+  "#dma-cells":
+    const: 3
+
+dma-cells:
+  - channel
+  - slot
+  - per_fifo_addr

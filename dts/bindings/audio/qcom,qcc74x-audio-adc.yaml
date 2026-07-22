@@ -1,0 +1,15 @@
+# Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Opal family audio ADC
+
+compatible: "qcom,qcc74x-audio-adc"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  clk_div:
+    type: int
+    required: true
+    description: Audio ADC clock division ratio.
+      Should be less or equal 0x3F (63 dec).

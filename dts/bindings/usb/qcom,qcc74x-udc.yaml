@@ -1,0 +1,18 @@
+# Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's Opal family USB device controller
+
+compatible: "qcom,qcc74x-udc"
+
+include: [usb-ep.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  resets:
+    required: true

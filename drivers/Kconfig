@@ -1,0 +1,53 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+menu "Device Drivers"
+
+# zephyr-keep-sorted-start
+rsource "adc/Kconfig.qcc74x"
+rsource "audio/Kconfig.qcc74x"
+rsource "bluetooth/hci/Kconfig.qcc74x"
+rsource "cache/Kconfig.qcc74x"
+rsource "can/Kconfig.qcc74x"
+rsource "clock_control/Kconfig.qcc74x"
+rsource "comparator/Kconfig.qcc74x"
+rsource "counter/Kconfig.qcc74x"
+rsource "crypto/Kconfig.qcc74x"
+rsource "dac/Kconfig.qcc74x"
+rsource "dma/Kconfig.qcc74x"
+rsource "entropy/Kconfig.qcc74x"
+rsource "ethernet/Kconfig.qcc74x"
+rsource "flash/Kconfig.qcc74x"
+rsource "gpio/Kconfig.qcc74x"
+rsource "hwinfo/Kconfig.qcc74x"
+rsource "i2c/Kconfig.qcc74x"
+rsource "i2s/Kconfig.qcc74x"
+rsource "ir/Kconfig.qcc74x"
+rsource "ipm/Kconfig.qcc74x"
+rsource "mdio/Kconfig.qcc74x"
+rsource "mipi_dbi/Kconfig.qcc74x"
+rsource "pinctrl/Kconfig.qcc74x"
+rsource "pinctrl/Kconfig.qc7xx"
+rsource "pwm/Kconfig.qcc74x"
+rsource "reset/Kconfig.qcc74x"
+rsource "rtc/Kconfig.qcc74x"
+rsource "sdhc/Kconfig.qcc74x"
+rsource "sdio/Kconfig.qcc74x"
+rsource "serial/Kconfig.qcc74x"
+rsource "spi/Kconfig.qcc74x"
+rsource "syscon/Kconfig.qcc74x"
+rsource "usb/Kconfig.qcc74x"
+rsource "video/Kconfig.qcc74x"
+rsource "video/Kconfig.qcc74x_jpeg"
+rsource "watchdog/Kconfig.qcc74x"
+rsource "wifi/qc7xx/Kconfig.qc7xx"
+# zephyr-keep-sorted-stop
+
+endmenu

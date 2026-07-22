@@ -1,0 +1,28 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config DMA_QCC74X
+	bool "Qualcomm Opal DMA driver"
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	default y
+	help
+	  Enables DMA driver for Opal MCUs.
+
+if DMA_QCC74X
+
+config DMA_CH_TRANSFER_BLOCK_MAX
+	int "QC7XX Block Transfer Maximum Count"
+	default 10
+
+config DMA_CH_TRANSFER_LLI_MAX
+	int "QC7XX LLI Transfer Maximum Count"
+	default 20
+
+endif # DMA_QCC74X

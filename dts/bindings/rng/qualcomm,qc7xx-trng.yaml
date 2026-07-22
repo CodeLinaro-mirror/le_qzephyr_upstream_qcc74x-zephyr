@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+    Qualcomm QC7XX TRNG (True Random Number Generator).
+
+compatible: "qualcomm,qc7xx-trng"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

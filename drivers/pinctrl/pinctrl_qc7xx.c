@@ -1,0 +1,66 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/drivers/pinctrl.h>
+#include <zephyr/dt-bindings/pinctrl/qc7xx-pinctrl-common.h>
+#ifdef CONFIG_SOC_SERIES_QCC74X
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcc74x-pinctrl.h>
+#include "qcc74x_glb.h"
+#elif CONFIG_SOC_SERIES_QCC75X
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcc75x-pinctrl.h>
+#include "qcc75x_glb.h"
+#endif
+#include <qc7xx_gpio.h>
+
+static int qc7xx_pin_configure(const uint32_t pin_mux, const uint32_t pin_cfg)
+{
+	uint32_t pin_num = QC7XX_PIN_GET_NUM(pin_mux);
+	uint32_t func = QC7XX_PIN_GET_FUNC(pin_mux);
+	uint32_t func_cfg = QC7XX_PIN_GET_FUNC_CFG(pin_mux);
+	uint32_t uart_sig = QC7XX_PIN_GET_UART_SIG(pin_mux);
+	uint32_t ir_flag = QC7XX_PIN_GET_IR_FLAG(pin_mux);
+	struct qc7xx_device_s *gpio;
+
+	if (pin_num >= GPIO_PIN_MAX) {
+		return -EINVAL;
+	}
+
+    gpio = qc7xx_device_get_by_name("gpio");
+	if(func == GPIO_FUNC_UART ){
+		qc7xx_gpio_uart_init(gpio, pin_num, uart_sig);
+	}else{
+		qc7xx_gpio_init(gpio, pin_num, func_cfg);
+		if(func == GPIO_FUNC_CAM ){
+			if(pin_num<24){
+				/* TODO: select CAM0 and CAM1 */
+			}
+		}else if(func == GPIO_FUNC_GPIO){
+			if(ir_flag){
+				GLB_IR_RX_GPIO_Sel(pin_num);
+			}
+		}
+	}
+	return 0;
+}
+
+int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt,
+			   uintptr_t reg)
+{
+	uint32_t pin_mux, pin_cfg;
+	int ret = 0;
+
+	ARG_UNUSED(reg);
+
+	for (uint8_t i = 0U; i < pin_cnt; i++) {
+		pin_mux = pins[i].pinmux;
+		pin_cfg = pins[i].pincfg;
+
+		ret = qc7xx_pin_configure(pin_mux, pin_cfg);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+	return 0;
+}

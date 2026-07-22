@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Opal RISC-V machine timer
+
+compatible: "qcom,qcc74x-mtimer"
+
+include: riscv,machine-timer.yaml
+
+properties:
+  clocks:
+    required: true
+
+  clock-frequency:
+    type: int
+    required: true
+    description: Effective machine timer frequency in Hz.

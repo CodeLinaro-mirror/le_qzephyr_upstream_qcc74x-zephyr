@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+config PINCTRL_QC7XX
+	bool "QC7XX pin controller"
+	default y
+	depends on DT_HAS_QUALCOMM_QC7XX_PINCTRL_ENABLED
+	help
+	  Enables QC7XX pin controller

@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family Analog Comparator
+
+compatible: "qcom,qcc74x-acomp"
+
+include: base.yaml
+
+properties:
+  interrupts:
+    required: true
+
+  reg:
+    required: true
+
+  acomp_id:
+    type: int
+
+  mux_enable:
+    type: boolean
+
+  pos_chan_sel:
+    type: string
+    enum:
+      - AON_ACOMP_CHAN_ADC0
+      - AON_ACOMP_CHAN_ADC1
+      - AON_ACOMP_CHAN_ADC2
+      - AON_ACOMP_CHAN_ADC3
+      - AON_ACOMP_CHAN_ADC4
+      - AON_ACOMP_CHAN_ADC5
+      - AON_ACOMP_CHAN_ADC6
+      - AON_ACOMP_CHAN_ADC7
+      - AON_ACOMP_CHAN_DACA
+      - AON_ACOMP_CHAN_DACB
+      - AON_ACOMP_CHAN_VREF_1P25V
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_1
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_2
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_3
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_4
+      - AON_ACOMP_CHAN_VSS
+    description: Positive channel select
+
+  neg_chan_sel:
+    type: string
+    enum:
+      - AON_ACOMP_CHAN_ADC0
+      - AON_ACOMP_CHAN_ADC1
+      - AON_ACOMP_CHAN_ADC2
+      - AON_ACOMP_CHAN_ADC3
+      - AON_ACOMP_CHAN_ADC4
+      - AON_ACOMP_CHAN_ADC5
+      - AON_ACOMP_CHAN_ADC6
+      - AON_ACOMP_CHAN_ADC7
+      - AON_ACOMP_CHAN_DACA
+      - AON_ACOMP_CHAN_DACB
+      - AON_ACOMP_CHAN_VREF_1P25V
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_1
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_2
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_3
+      - AON_ACOMP_CHAN_VIO_X_SCALING_FACTOR_4
+      - AON_ACOMP_CHAN_VSS
+    description: Negative channel select
+
+  vio_sel:
+    type: int
+    description: VIO voltage select, (vioSel/66)*avdd33
+
+  scaling_factor:
+    type: string
+    enum:
+      - AON_ACOMP_SCALING_FACTOR_0P25
+      - AON_ACOMP_SCALING_FACTOR_0P5
+      - AON_ACOMP_SCALING_FACTOR_0P75
+      - AON_ACOMP_SCALING_FACTOR_1
+    description: Scaling factor level select
+
+  bias_prog:
+    type: string
+    enum:
+      - AON_ACOMP_BIAS_POWER_MODE1
+      - AON_ACOMP_BIAS_POWER_MODE2
+      - AON_ACOMP_BIAS_POWER_MODE3
+      - AON_ACOMP_BIAS_POWER_NONE
+    description: Bias current control, modes 1,2,3 refer to slow, medium and fast repsonse.
+
+  hysteresis_pos_volt:
+    type: string
+    enum:
+      - AON_ACOMP_HYSTERESIS_VOLT_NONE
+      - AON_ACOMP_HYSTERESIS_VOLT_10MV
+      - AON_ACOMP_HYSTERESIS_VOLT_20MV
+      - AON_ACOMP_HYSTERESIS_VOLT_30MV
+      - AON_ACOMP_HYSTERESIS_VOLT_40MV
+      - AON_ACOMP_HYSTERESIS_VOLT_50MV
+      - AON_ACOMP_HYSTERESIS_VOLT_60MV
+      - AON_ACOMP_HYSTERESIS_VOLT_70MV
+    description: hysteresis voltage for positive
+
+  hysteresis_neg_volt:
+    type: string
+    enum:
+      - AON_ACOMP_HYSTERESIS_VOLT_NONE
+      - AON_ACOMP_HYSTERESIS_VOLT_10MV
+      - AON_ACOMP_HYSTERESIS_VOLT_20MV
+      - AON_ACOMP_HYSTERESIS_VOLT_30MV
+      - AON_ACOMP_HYSTERESIS_VOLT_40MV
+      - AON_ACOMP_HYSTERESIS_VOLT_50MV
+      - AON_ACOMP_HYSTERESIS_VOLT_60MV
+      - AON_ACOMP_HYSTERESIS_VOLT_70MV
+    description: hysteresis voltage for negative

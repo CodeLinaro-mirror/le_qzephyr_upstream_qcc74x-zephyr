@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: |
+  Qualcomm Opal family DMA (Direct Memory Access) controller
+  General Direct Memory Access (GDMA) is a feature that allows
+  peripheral-to-memory, memory-to-peripheral, and memory-to-memory
+  data transfer at a high speed.
+
+compatible: "qcom,qcc74x-dma"
+
+include: dma-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  dma-channels:
+    required: true
+
+  "#dma-cells":
+    const: 3
+
+dma-cells:
+  - channel
+  - slot
+  - per_fifo_addr

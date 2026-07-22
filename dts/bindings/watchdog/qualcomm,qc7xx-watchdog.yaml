@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's watchdog
+
+compatible: "qualcomm,qc7xx-watchdog"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  clock-source:
+    type: int
+    default: 0
+    description: Clock source of Watchdog.
+
+  clock-div:
+    type: int
+    default: 0
+    description: Watchdog prescaler.
+
+

@@ -1,0 +1,36 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+config SOC_SERIES_QCC74X
+	bool
+	select SOC_FAMILY_QCOM_QCC7XX
+
+config SOC_QCC743
+	bool
+	select SOC_SERIES_QCC74X
+
+config SOC_QCC744
+	bool
+	select SOC_SERIES_QCC74X
+
+config SOC_QCC748
+	bool
+	select SOC_SERIES_QCC74X
+
+config GEN_SW_ISR_TABLE
+	bool
+
+config SOC
+	default "qcc743" if SOC_QCC743
+	default "qcc744" if SOC_QCC744
+	default "qcc748" if SOC_QCC748
+
+config SOC_SERIES
+	default "qcc74x" if SOC_SERIES_QCC74X

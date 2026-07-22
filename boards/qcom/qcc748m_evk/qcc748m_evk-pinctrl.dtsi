@@ -1,0 +1,44 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&pinctrl {
+	uart0_default: uart0_default {
+		group1 {
+			pinmux = <UART0_TXD_GPIO21>,
+				 <UART0_RXD_GPIO22>;
+			bias-pull-up;
+			input-enable;
+		};
+	};
+
+	uart0_sleep: uart0_sleep {
+		group1 {
+			pinmux = <UART0_TXD_GPIO21>,
+				 <UART0_RXD_GPIO22>;
+			bias-disable;
+		};
+	};
+
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_RXD_GPIO30>,
+				 <UART1_TXD_GPIO29>,
+				 <UART1_CTS_GPIO28>,
+				 <UART1_RTS_GPIO27>;
+			bias-pull-up;
+			input-enable;
+		};
+	};
+
+	uart1_sleep: uart1_sleep {
+		group1 {
+			pinmux = <UART1_RXD_GPIO30>,
+				 <UART1_TXD_GPIO29>;
+			bias-disable;
+		};
+	};
+
+};

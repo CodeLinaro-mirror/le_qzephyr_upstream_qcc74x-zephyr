@@ -1,0 +1,31 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config BT_QCC74X
+	bool "Qualcomm Opal BT_HCI driver"
+	default y
+	depends on BT
+	depends on DT_HAS_QCOM_QCC74X_BT_HCI_ENABLED
+	help
+	  Enables BT_HCI bluetooth driver for Opal MCUs.
+
+if BT_QCC74X
+
+config BT_BUF_ACL_RX_SIZE
+		int
+		default 251
+
+config HEAP_MEM_POOL_SIZE
+	int "Heap Memory Pool Size"
+	default 8192
+	help
+	  Specifies the size of the heap memory pool in bytes.
+
+endif

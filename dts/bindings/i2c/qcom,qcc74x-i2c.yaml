@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family I2C controller
+
+compatible: "qcom,qcc74x-i2c"
+
+include: [i2c-controller.yaml, pinctrl-device.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  clock-frequency:
+    description: Initial clock frequency in Hz
+    required: true
+    type: int
+    default: 100000
+    enum:
+      - 100000
+      - 400000
+      - 1000000
+
+  clocks:
+    required: true
+
+  resets:
+    required: true
+
+  dmas:
+    description: |
+      DMA channels for TX and RX operations.
+      First cell specifies the channel number,
+      Second cell specifies the slot
+      Third cell specifies the peripheral FIFO address.
+
+  dma-names:
+    description: |
+      Should be "tx" and "rx" for transmit and receive DMA channels.

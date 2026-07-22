@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's Opal family efuse storage
+
+compatible: "qcom,qcc74x-efuse"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  size:
+    required: true
+    type: int
+    description: Size of efuse storage (bytes)

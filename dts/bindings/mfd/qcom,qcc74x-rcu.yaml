@@ -1,0 +1,22 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Qualcomm Opal family Reset and Clock Unit (RCU) if a multi-function peripheral
+  in charge of reset control (RCTL) and clock control (CCTL) for all SoC
+  peripherals. Child nodes are used to represent each functional block.
+
+compatible: "qcom,qcc74x-rcu"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

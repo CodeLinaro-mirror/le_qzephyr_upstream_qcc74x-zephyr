@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config SPI_QCC74X
+	bool "Qualcomm Opal SPI driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_SPI_ENABLED
+	depends on SPI
+	select PINCTRL
+	select GPIO
+	help
+	  Enable SPI driver for Opal MCUs.
+
+if SPI_QCC74X
+
+config SPI_QCC74X_DMA
+	bool "Opal SPI DMA Support"
+	select DMA
+	help
+	  Use the DMA for SPI transfer.
+
+config SPI_QCC74X_DMA_FORCE_SINGLE_BLOCK_TEST
+	bool "Force single-block DMA (test only)"
+	default n
+	depends on SPI_QCC74X_DMA
+	help
+	  Forces SPI DMA transfers to use bounce buffers so TX/RX are submitted
+	  as a single DMA block when possible. Intended for debugging/testing.
+	  For RX buffer sets with NULL gaps, the driver keeps the regular
+	  multi-block path.
+
+config SPI_QCC74X_DMA_SD_TX_CRC_DEBUG
+	bool "Enable SD TX bounce CRC diagnostic (debug only)"
+	default n
+	depends on SPI_QCC74X_DMA
+	help
+	  Enables one-shot diagnostic logging for SD SPI write frames sent through
+	  the TX bounce buffer. This is intended only for debug bring-up.
+
+config SPI_QCC74X_INTERRUPT
+	bool "Opal SPI interrupt-driven transfer support"
+	depends on !SPI_QCC74X_DMA
+	help
+	  Enable interrupt-driven SPI transfers for the Opal SPI controller.
+	  This allows non-blocking async transfers with completion callbacks.
+	  Synchronous transfers can optionally use the interrupt path via
+	  SPI_QCC74X_INTERRUPT_SYNC.
+	  This option is mutually exclusive with SPI_QCC74X_DMA.
+
+config SPI_QCC74X_INTERRUPT_SYNC
+	bool "Use interrupt path for synchronous SPI transfers"
+	default n
+	depends on SPI_QCC74X_INTERRUPT
+	help
+	  When disabled, synchronous SPI transfers (spi_transceive/spi_write/spi_read)
+	  use the polling path while asynchronous transfers can still use interrupts.
+	  This is useful for peripherals with strict timing during command sequencing.
+
+config SPI_QCC74X_INTERRUPT_THRESHOLD_TX
+	int "TX FIFO interrupt threshold"
+	default 16
+	range 0 31
+	depends on SPI_QCC74X_INTERRUPT
+	help
+	  TX FIFO threshold (tx_fifo_th) for interrupt generation.
+	  Interrupt fires when tx_fifo_cnt > tx_fifo_th (available space exceeds threshold).
+	  Lower values = interrupt fires sooner (less space needed), more interrupts.
+	  Higher values = interrupt fires later, fewer interrupts but risk of underrun.
+	  Default 16 means interrupt when >= 17 bytes free in 32-byte FIFO.
+
+config SPI_QCC74X_INTERRUPT_THRESHOLD_RX
+	int "RX FIFO interrupt threshold"
+	default 0
+	range 0 31
+	depends on SPI_QCC74X_INTERRUPT
+	help
+	  RX FIFO threshold (rx_fifo_th) for interrupt generation.
+	  Interrupt fires when rx_fifo_cnt > rx_fifo_th (available data exceeds threshold).
+	  Lower values = interrupt fires sooner (less data needed), more responsive.
+	  Higher values = interrupt fires later, fewer interrupts but risk of overrun.
+	  Default 0 means interrupt when >= 1 byte available (most responsive).
+
+endif # SPI_QCC74X

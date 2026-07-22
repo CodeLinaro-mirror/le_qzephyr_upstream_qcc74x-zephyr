@@ -1,0 +1,30 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: QC7XX Ethernet MAC driver
+
+compatible: "qualcomm,qc7xx-emac"
+
+include: [ethernet-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  phy-handle:
+    required: true
+
+  peripheral_name:
+    type: string
+    required: true
+
+  ref-clk-output:
+    type: int
+    description: |
+      ref-clk-output is used to configure whether the chip outputs the RMII clock.
+      If it is set to 1, the chip provides a 50 MHz clock to the PHY. If it is set to 0,
+      the PHY provides a 50 MHz clock to the chip.
+
+  rx-clk-invert:
+    type: int
+    description: |
+      rx_clk_invert is used to configure whether the inverted RX clock is used.
+      If it is set to 1, the RX clock is inverted.
+      If it is set to 0, the RX clock is not inverted.

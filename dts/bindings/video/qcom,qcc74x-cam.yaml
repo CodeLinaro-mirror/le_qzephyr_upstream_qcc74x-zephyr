@@ -1,0 +1,36 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's Opal family CAM Peripheral interface
+
+compatible: "qcom,qcc74x-cam"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  reg:
+    required: true    
+
+  source:
+    required: true
+    type: phandle
+    description: Connected source device, like image sensor.
+
+  div:
+    type: int
+    default: 3
+    description: |
+      Value of the clock divider. Should be less or equal to 0x3.

@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config CACHE_QCC74X
+	bool "Qualcomm Opal L1 Cache Driver"
+	default y
+	depends on CACHE_MANAGEMENT
+	select CACHE_HAS_DRIVER
+	help
+	  This option enables the CACHE driver for Opal MCUs.

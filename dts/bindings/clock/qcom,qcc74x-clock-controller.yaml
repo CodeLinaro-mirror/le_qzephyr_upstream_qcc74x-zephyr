@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family Clock Controller
+
+compatible: "qcom,qcc74x-clock-controller"
+
+include: [clock-controller.yaml, base.yaml, pinctrl-device.yaml]
+
+properties:
+  "#clock-cells":
+    const: 2
+
+  wifi-pll-type:
+    type: int
+    default: 0
+    enum:
+      - 0
+      - 1
+    description: Wifi PLL option.
+                 One of the following
+                 QC7XX_WIFI_PLL_960M (0)
+                 QC7XX_WIFI_PLL_OFF  (1)
+
+  audio-pll-type:
+    type: int
+    enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+    description: Audio PLL option.
+                 One of the following
+                 QC7XX_AUDIO_PLL_491P52M (0)
+                 QC7XX_AUDIO_PLL_451P58M (1)
+                 QC7XX_AUDIO_PLL_400M    (2)
+                 QC7XX_AUDIO_PLL_384M    (3)
+                 QC7XX_AUDIO_PLL_245P76M (4)
+                 QC7XX_AUDIO_PLL_240M    (5)
+                 QC7XX_AUDIO_PLL_OFF     (6)
+
+  xtal-type:
+    type: int
+    default: 4
+    enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+    description: XTAL type. One of the following
+                 QC7XX_XTAL_NONE (0)
+                 QC7XX_XTAL_24M  (1)
+                 QC7XX_XTAL_32M  (2)
+                 QC7XX_XTAL_38P4M(3)
+                 QC7XX_XTAL_40M  (4)
+                 QC7XX_XTAL_26M  (5)
+                 QC7XX_XTAL_RC32M(6)
+                 QC7XX_XTAL_MAX  (7)
+
+  f32k-clk-src:
+    default: 0
+    type: int
+    description: Clock source selection for 32kHz clock.
+      Possible values are following
+      - QC7XX_HBN_32K_RC   (0)
+      - QC7XX_HBN_32K_XTAL (1)
+      - QC7XX_HBN_32K_DIG  (3)
+
+  dig-clk-src:
+    type: int
+    default: 255
+    description: Clock source selection for DIG clock.
+      Possible values are following
+      - QC7XX_DIG_CLK_WIFIPLL_32M (0)
+      - QC7XX_DIG_CLK_XCLK        (1)
+      - QC7XX_DIG_CLK_AUPLL       (2)
+
+  clk-in-freq:
+    type: int
+    required: false
+    default: 0
+    description: Frequency of external clock signal provided to
+                 clock input pin (in Hertz).
+
+clock-cells:
+  - id
+  - source

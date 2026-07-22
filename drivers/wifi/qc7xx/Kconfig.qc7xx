@@ -1,0 +1,170 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+
+menuconfig WIFI_QCC74X
+	bool "SOC WiFi support"
+	default n
+	select NET_L2_WIFI_MGMT
+	select WIFI_USE_NATIVE_NETWORKING
+	help
+	  Enable SOC WiFi support. Only supported in single
+	  core mode because the network stack is not aware of SMP
+	  stuff.
+menuconfig WIFI_QCC75X
+	bool "SOC WiFi support"
+	default n
+	select NET_L2_WIFI_MGMT
+	select WIFI_USE_NATIVE_NETWORKING
+	help
+	  Enable SOC WiFi support. Only supported in single
+	  core mode because the network stack is not aware of SMP
+	  stuff.
+
+if WIFI_QCC74X || WIFI_QCC75X
+
+config SOC_WIFI_MBEDTLS_CRYPTO
+	bool "Use MbedTLS crypto APIs"
+	default n
+	select MBEDTLS_ECP_C
+	select MBEDTLS_ECDH_C
+	select MBEDTLS_ECDSA_C
+	select MBEDTLS_PKCS5_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_CIPHER_MODE_CTR_ENABLED
+	select MBEDTLS_CMAC
+	select MBEDTLS_ENTROPY_C
+	help
+	  Select this option to use MbedTLS crypto APIs which utilize hardware acceleration.
+
+config SOC_WIFI_DEBUG_PRINT
+	bool "Print debug messages from WPA Supplicant"
+	default n
+	help
+	  Select this option to print logging information from WPA supplicant,
+	  this includes handshake information and key hex dumps depending
+	  on the project logging level.
+
+	  Enabling this could increase the build size ~60kb
+	  depending on the project logging level.
+
+config QC7XX_WIFI_STA_AUTO_DHCPV4
+	bool "Automatically starts DHCP4 negotiation"
+	depends on NET_DHCPV4
+	depends on NET_IPV4
+	help
+	  WiFi driver will automatically initiate DHCPV4 negotiation when connected.
+
+config QC7XX_WIFI_AP_STA_MODE
+	bool "Activates the Station/AP co-existence mode."
+	depends on WIFI_NM
+	select NET_DHCPV4_SERVER if NET_IPV4 && NET_UDP
+	help
+	  The Station/AP coexistence mode allows the SOC to operate as both a station and
+	  an access point simultaneously. This mode is not enabled by default.
+
+if QC7XX_WIFI_AP_STA_MODE
+
+config QC7XX_WIFI_SOFTAP_IP_ADDRESS
+	string "QCC7xx SoftAP IPv4 address"
+	default "192.168.4.1"
+
+config QC7XX_WIFI_SOFTAP_IP_MASK
+	string "QCC7xx SoftAP IPv4 netmask"
+	default "255.255.255.0"
+
+config QC7XX_WIFI_SOFTAP_IP_BASE
+	string "QCC7xx SoftAP DHCPv4 base address"
+	default "192.168.4.2"
+
+endif # QC7XX_WIFI_AP_STA_MODE
+
+config QCC74X_WIFI_PS_SUPPORT
+	bool
+	depends on WIFI_QCC74X
+	depends on SOC_SERIES_QCC74X
+	help
+	  Internal switch for building the QCC74X vendor Wi-Fi stack with its
+	  power-save backend. PDS15 low power and Wi-Fi/BLE coexistence both
+	  use this backend, but they remain separate user-visible features.
+
+config QCC74X_WIFI_LOW_POWER
+	bool "Enable QCC74X Wi-Fi low-power support"
+	depends on WIFI_QCC74X
+	depends on SOC_SERIES_QCC74X
+	select QCC74X_WIFI_PS_SUPPORT
+	help
+	  Build the QCC74X Wi-Fi stack with the vendor power-save path used
+	  by PDS15 validation.
+
+config QCC74X_WIFI_COEX
+	bool "Enable QCC74X Wi-Fi/BLE coexistence support"
+	depends on WIFI_QCC74X
+	depends on SOC_SERIES_QCC74X
+	select QCC74X_WIFI_PS_SUPPORT
+	help
+	  Build the QCC74X Wi-Fi/BLE coexistence runtime. This enables the
+	  vendor Wi-Fi power-save backend and exposes sample validation APIs,
+	  but does not enable coexistence automatically at boot.
+
+config QCC74X_WIFI_COEX_STATS
+	bool "Enable QCC74X Wi-Fi/BLE coexistence timeslice statistics"
+	depends on QCC74X_WIFI_COEX
+	default n
+	help
+	  Build optional coex timeslice statistics for validation. This is off
+	  by default to keep the production Wi-Fi path small.
+
+config SOC_WIFI_STA_RECONNECT
+	bool "WiFi connection retry"
+	help
+	  Set auto WiFI reconnection when disconnected.
+
+config QC7XX_SOCKET_OFFLOAD
+	bool "QC7xx Socket Offload Support"
+	depends on NET_SOCKETS_OFFLOAD && WIFI_QCC75X
+	default y
+	# select NET_SOCKETS_OFFLOAD_DISPATCHER  # Commented out to allow manual control
+	select OPENAMP
+	select RPMSG_SERVICE
+	help
+	  Enable socket offload support for QC7xx AP core.
+	  Sockets created on AP core will be offloaded to NP core via RPMsg RPC.
+	  This allows applications to use standard POSIX socket APIs while
+	  the actual socket operations are performed on the NP core.
+
+config QC7XX_SOCKET_OFFLOAD_PRIORITY
+	int "QC7xx Socket Offload Priority"
+	depends on QC7XX_SOCKET_OFFLOAD
+	default 40
+	help
+	  Processing priority for QC7xx offloaded sockets. Lower values have
+	  higher priority. This should be set lower than native socket priority
+	  to prefer offloaded sockets when available.
+
+config QC7XX_SOCKET_OFFLOAD_MAX_SOCKETS
+	int "Maximum number of offloaded sockets"
+	depends on QC7XX_SOCKET_OFFLOAD
+	default 64
+	range 8 256
+	help
+	  Maximum number of sockets that can be offloaded from AP core to NP core.
+	  Each socket consumes memory on both AP and NP cores.
+
+config QC7XX_IPC_SOCKET_TIMEOUT_MS
+	int "IPC socket operation timeout (ms)"
+	depends on QC7XX_SOCKET_OFFLOAD
+	default 5000
+	range 1000 30000
+	help
+	  Timeout for IPC socket operations between AP and NP core in milliseconds.
+	  If an operation takes longer than this timeout, it will fail with ETIMEDOUT.
+
+config QC7XX_SOCKET_OFFLOAD_DEBUG
+	bool "Debug logging for QC7xx socket offload"
+	depends on QC7XX_SOCKET_OFFLOAD
+	help
+	  Enable detailed debug logging for socket offload operations.
+	  This includes socket creation, IPC communications, and error conditions.
+
+endif

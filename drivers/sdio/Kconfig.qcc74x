@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig SDIO
+	bool "SDIO peripheral driver"
+	help
+	  This option enables the SDIO custom driver class for Opal MCUs.
+
+if SDIO
+
+config SDIO_INIT_PRIORITY
+	int "SDIO peripheral drivers init priority"
+	default KERNEL_INIT_PRIORITY_DEVICE
+	help
+	  SDIO peripheral drivers init priority.
+
+module = SDIO
+module-str = sdio
+source "subsys/logging/Kconfig.template.log_config"
+
+config SDIO_QCC74X
+	bool "Qualcomm Opal SDIO driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_SDIO_ENABLED
+	select PINCTRL
+	select GPIO
+	help
+	  Enables SDIO peripheral interface driver for Opal MCUs.
+
+endif # SDIO

@@ -1,0 +1,13 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+zephyr_library_amend()
+zephyr_include_directories(${ZEPHYR_BASE}/drivers/spi)
+zephyr_library_sources_ifdef(CONFIG_SPI_QCC74X	spi_qcc74x.c)

@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+config SYSCON_QCC74X_EFUSE
+	bool "Qualcomm Opal EFUSEs driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_EFUSE_ENABLED
+	help
+	  E-Fuse access via SYSCON API for Opal platforms.

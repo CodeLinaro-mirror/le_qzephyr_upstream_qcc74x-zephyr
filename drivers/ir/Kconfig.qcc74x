@@ -1,0 +1,35 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig IR
+	bool "Qualcomm IR device driver"
+	help
+	  This option enables the IR custom driver class for Opal MCUs.
+
+if IR
+
+config IR_INIT_PRIORITY
+	int "IR device drivers init priority"
+	default KERNEL_INIT_PRIORITY_DEVICE
+	help
+	  IR device drivers init priority.
+
+module = IR
+module-str = ir
+source "subsys/logging/Kconfig.template.log_config"
+
+config IR_QCC74X
+	bool "Qualcomm ir driver"
+	default y
+	select PINCTRL
+	help
+	  Enable Opal IR driver.
+
+endif # IR

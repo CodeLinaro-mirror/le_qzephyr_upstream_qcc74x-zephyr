@@ -1,0 +1,53 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+menu "QCC75x EVK options"
+
+config QCC75X_OCRAM_SIZE_CPU0
+	hex "OCRAM used by CPU0"
+	default 0x50000
+
+config QCC75X_WRAM_SIZE_CPU0
+	hex "WRAM used by CPU0"
+	default 0x50000
+
+config QCC75X_CODE_SIZE_CPU0
+	hex "Code size used by CPU0"
+	default 0x300000
+
+config QCC75X_PSRAM_DATA_SIZE_CPU0
+	hex "PSRAM data size used by CPU0"
+	default 0x200000
+
+config QCC75X_OCRAM_SIZE_CPU1
+	hex "OCRAM used by CPU1"
+	default 0x00000000
+
+config QCC75X_WRAM_SIZE_CPU1
+	hex "WRAM used by CPU1"
+	default 0x00000
+
+config QCC75X_L2RAM_SIZE_CPU1
+	hex "L2RAM used by CPU1"
+	default 0x28000
+
+config QCC75X_CODE_SIZE_CPU1
+	hex "Code size used by CPU1"
+	default 0x200000
+
+config QCC75X_PSRAM_DATA_SIZE_CPU1
+	hex "PSRAM data size used by CPU1"
+	default 0x100000
+
+config HEAP_MEM_POOL_ADD_SIZE_BOARD
+	int
+	default 4096
+
+endmenu

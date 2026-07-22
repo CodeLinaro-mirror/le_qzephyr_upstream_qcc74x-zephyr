@@ -1,0 +1,30 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config I2C_QCC74X
+	bool "Qualcomm Opal I2C driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_I2C_ENABLED
+	select RING_BUFFER
+	select PINCTRL
+	help
+	  Enable I2C driver for Opal MCUs.
+
+if I2C_QCC74X
+
+config I2C_QCC74X_DMA
+	bool "Opal I2C DMA support"
+	default n
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	select DMA
+	help
+	  Select I2C DMA mode for I2C transfers.
+
+endif # I2C_QCC74X

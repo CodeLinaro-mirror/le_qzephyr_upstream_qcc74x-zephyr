@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+description: Qualcomm Opal family timer controller
+
+compatible: "qcom,qcc74x-timer"
+
+include: [reset-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  channels:
+    type: int
+    required: true
+    description: Number of timer channels.
+
+  clock-gate:
+    type: int
+    required: false
+    description: Shared peripheral clock gate for the TIMER hardware block.
+
+  clocks:
+    required: true
+
+  clock-div:
+    type: int
+    default: 0
+    description: Timer prescaler.
+
+  resets:
+    required: true
+
+  counter-mode:
+    type: int
+    default: 0
+    description: Timer counter mode definition.
+
+  preload-id:
+    type: int
+    default: 3
+    description: When the value corresponding to preload_id is reached, reload the value of preload_val.
+
+  comp0-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 0.
+
+  comp1-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 1.
+
+  comp2-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 2.
+
+  preload-val:
+    type: int
+    default: 0
+    description: Initial value for reloading.
+
+  start-at-init:
+    type: int
+    default: 0
+    description: Start the counter when initialized

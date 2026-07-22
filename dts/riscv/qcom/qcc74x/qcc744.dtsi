@@ -1,0 +1,77 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <qcom/qcc74x/qcc74x.dtsi>
+
+&soc {
+	audio_adc: audio_adc@2000ac00 {
+		compatible = "qcom,qcc74x-audio-adc";
+		reg = <0x2000ac00 DT_SIZE_K(1)>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_AUADC0 QC7XX_CLK_DEFAULT>;
+		clk_div = <0>;
+		status = "disabled";
+	};
+
+	audio_dac: audio_dac@20055000 {
+		compatible = "qcom,qcc74x-audio-dac";
+		reg = <0x20055000 0x98>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_AUDAC0 QC7XX_CLK_DEFAULT>;
+		clk_div = <0>;
+		status = "disabled";
+	};
+
+	emac0: emac@20070000 {
+		compatible = "qcom,qcc74x-emac";
+		reg = <0x20070000 0x1000>;
+		interrupts = <EMAC_IRQn IRQ_DEFAULT_PRIORITY 0>;
+		interrupt-parent = <&intc>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_EMAC0 QC7XX_CLK_DEFAULT>;
+		rx-clk-invert = <0>;
+		ref-clk-output = <0>;
+		status = "disabled";
+	};
+
+	mdio0: mdio@20070028 {
+		compatible = "qcom,qcc74x-mdio";
+		reg = <0x20070028 0x18>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_EMAC0 QC7XX_CLK_DEFAULT>;
+		clk_div = <39>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+
+	mipi_dbi0: mipi_dbi@2000a800 {
+		compatible = "qcom,qcc74x-mipi-dbi";
+		reg = <0x2000a800 0x1000>;
+		interrupts = <DBI_IRQn IRQ_DEFAULT_PRIORITY 0>;
+		interrupt-parent = <&intc>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_DBI QC7XX_DBI_CLK_MCU_MUXPLL_160M>;
+		resets = <&reset QC7XX_RESET_DBI>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+
+	cam: cam@20057000 {
+		compatible = "qcom,qcc74x-cam";
+		reg = <0x20057000 0x100>;
+		interrupts = <DVP2BUS_INT0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+		interrupt-parent = <&intc>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_CAM0 QC7XX_CAM_CLK_WIFIPLL_96M>;
+		div = <3>;
+		status = "disabled";
+	};
+
+	jpeg: jpeg@20059000 {
+		compatible = "qcom,qcc74x-jpeg";
+		reg = <0x20059000 0x1000>;
+		interrupts = <MJPEG_IRQn IRQ_DEFAULT_PRIORITY 0>;
+		interrupt-parent = <&intc>;
+		clocks = <&clock0 QC7XX_PERIPHERAL_JENC QC7XX_CLK_DEFAULT>;
+		resets = <&reset QC7XX_RESET_JENC>;
+		status = "disabled";
+	};
+};

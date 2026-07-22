@@ -1,0 +1,28 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config SDHC_QCC74X
+	bool "Qualcomm Opal SDHC driver"
+	default y
+	depends on SDHC
+	depends on DT_HAS_QCOM_QCC74X_SDHC_ENABLED
+	select SDHC_SUPPORTS_NATIVE_MODE
+	select PINCTRL
+	help
+	  Enables SD Host controller driver for Opal MCUs.
+
+if SDHC_QCC74X
+
+# cache line alignment
+config SDHC_BUFFER_ALIGNMENT
+	int "SDHC buffer alignment"
+	default DCACHE_LINE_SIZE
+
+endif

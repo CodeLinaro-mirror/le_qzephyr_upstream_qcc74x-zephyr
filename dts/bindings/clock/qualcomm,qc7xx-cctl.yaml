@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Qualcomm Reset and Clock Unit (RCU) if a multi-function peripheral in
+  charge of reset control (RCTL) and clock control (CCTL) for all SoC
+  peripherals. This binding represents the clock controller (CCTL).
+
+  To specify the clocks in a peripheral, the standard clocks property needs
+  to be used.
+
+  Predefined RCU clock cells are available in
+  include/zephyr/dts-bindings/clock/bl{xxx}-clocks.h header files, where {xxx}
+  corresponds to the SoC series, e.g. f4xx.
+
+compatible: "qualcomm,qc7xx-cctl"
+
+include: [clock-controller.yaml, base.yaml]
+
+properties:
+  "#clock-cells":
+    const: 1
+
+clock-cells:
+  - id

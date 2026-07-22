@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+config VIDEO_QCC74X_JPEG
+	bool "Opal JPEG HW encoder driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_JPEG_ENABLED
+	help
+	  Enable driver for Opal JPEG HW Codec peripheral

@@ -1,0 +1,31 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config MIPI_DBI_QCC74X
+	bool "Qualcomm Opal MIPI DBI driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_MIPI_DBI_ENABLED
+	select PINCTRL
+	select GPIO
+	help
+	  Enable MIPI DBI driver for Opal MCUs.
+
+if MIPI_DBI_QCC74X
+
+config MIPI_DBI_QCC74X_USE_DMA
+	bool "Use DMA for transfers with DBI driver"
+	default n
+	select DMA
+	select EVENTS
+	help
+	  Use DMA for transfers when sending data with the DBI driver.
+	  Commands will still be sent in polling mode.
+
+endif # MIPI_DBI_QCC74X

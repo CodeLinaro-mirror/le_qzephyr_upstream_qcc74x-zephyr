@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+description: QUALCOMM UART
+
+compatible: "qualcomm,qc7xx-uart"
+
+include: [uart-controller.yaml, uart-controller-pin-inversion.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  index:
+    type: int
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  clocks:
+    required: true
+
+  hw-rs485-hd-mode:
+    type: boolean
+    description: |
+      Enable the hardware RS485 half duplex mode.
+      Overrides hw-flow-control if both are set.
+      Using this mode, the pin assigned to DTR
+      is asserted during transmission.

@@ -1,0 +1,35 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0.
+
+config I2S_QCC74X
+	bool "Qualcomm Opal I2S driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_I2S_ENABLED
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	select PINCTRL
+	select DMA
+	help
+	  Enables I2S driver for Opal MCUs.
+
+if I2S_QCC74X
+
+config I2S_QCC74X_RX_BLOCK_COUNT
+	int "Opal I2S RX block count"
+	default 8
+	help
+	  Max number of blocks waiting to be read from the I2S RX channel.
+
+config I2S_QCC74X_TX_BLOCK_COUNT
+	int "Opal I2S TX block count"
+	default 8
+	help
+	  Max number of blocks waiting to be transmitted by the I2S TX channel.
+
+endif

@@ -1,0 +1,32 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config CRYPTO_QCC74X
+	bool "Qualcomm Opal cipher and hash driver"
+	default y
+	depends on DT_HAS_QCOM_QCC74X_CRYPTO_ENABLED
+	help
+	  Enable Crypto Driver for Opal MCUs.
+
+config CRYPTO_QCC74X_SHA_MAX_SESSION
+	int "Maximum of sessions crypto driver can handle"
+	default 10
+	depends on CRYPTO_QCC74X
+	help
+	  This can be used to tweak the amount of sessions the driver
+	  can handle in parallel.
+
+config CRYPTO_QCC74X_CIPHER_MAX_SESSION
+	int "Maximum of sessions cipher driver can handle"
+	default 10
+	depends on CRYPTO_QCC74X
+	help
+	  This can be used to tweak the amount of sessions the driver
+	  can handle in parallel.

@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Opal family pin control
+
+compatible: "qcom,qcc74x-pinctrl"
+
+include: base.yaml
+
+child-binding:
+  description: |
+    Qualcomm QCC74x family pin controller pin configuration nodes. Each node is composed
+    by one or more groups, each defining the configuration for a set of pins.
+
+  child-binding:
+    description: |
+      Qualcomm QCC74x family pin controller pin configuration group. Each group contains
+      a list of pins sharing the same set of properties. Example:
+      uart0_default: uart0_default {
+        group1 {
+          /* configure to uart0 function, pin 22 as UART_RX
+             pin 21 as UART_TX */
+          pinmux = <UART0_TXD_GPIO21>,
+                   <UART0_RXD_GPIO22>;
+          bias-pull-up;
+          input-schmitt-enable;
+        };
+      };
+      The list of supported standard properties:
+      - bias-high-impedance: Disable pull-up/down (default behavior, not
+        required).
+      - bias-pull-up: Enable pull-up resistor.
+      - bias-pull-down: Enable pull-down resistor.
+      - input-enable: Enable GPIO as input.
+      - input-schmitt-enable: Enable Schimitt Trigger when GPIO is Input.
+      - output-enable: Enable GPIO as output.
+
+      Note that bias options are mutually exclusive. It is the same with GPIO
+      input/output enable options.
+
+    include:
+      - name: pincfg-node.yaml
+        property-allowlist:
+          - bias-high-impedance
+          - bias-pull-down
+          - bias-pull-up
+          - input-enable
+          - input-schmitt-enable
+          - output-enable
+          - output-high
+          - output-low
+
+
+    properties:
+      pinmux:
+        required: true
+        type: array
+        description: |
+          An array of pins sharing the same group properties. The pins should be
+          defined using the QCOM_PINMUX utility macro that encode all the pin
+          route matrix.
+      drive-strength:
+        type: int
+        default: 0
+        enum:
+          - 0     # Default value, lower strength, 8mA
+          - 1     # 9.6mA
+          - 2     # 11.2mA
+          - 3     # highest strength, 12.8mA
+        description: |
+          Pin drive strength. It tunes pin max current where 0 means lower
+          value, which is the default, and 3 represents max drive strength.
+      ir-enable:
+        type: boolean
+        description: |
+          If enabled. Pin will be selected for IR (Infrared) function.

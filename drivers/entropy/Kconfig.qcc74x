@@ -1,0 +1,18 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config ENTROPY_RNG_QCC74X
+	bool "Qualcomm Opal entropy number generator driver"
+	default y
+	depends on ENTROPY_GENERATOR
+	depends on DT_HAS_QCOM_QCC74X_TRNG_ENABLED
+	select ENTROPY_HAS_DRIVER
+	help
+	  This option enables the entropy number generator for Opal MCUs.

@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm Opal family IR (infrared) controller
+
+compatible: "qcom,qcc74x-ir"
+
+include: [pinctrl-device.yaml, base.yaml]
+
+properties:
+
+  reg:
+    required: true
+
+  divider:
+    type: int
+    required: true
+    description: 8 bit Clock divider
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  rx_mode:
+    type: string
+    required: true
+    enum:
+      - IR_RX_NEC
+      - IR_RX_RC5
+      - IR_RX_SWM
+    description: RX mode select, use SWM for other protocols than NEC or RC5.
+
+  input_inverse:
+    type: boolean
+    description: Enable signal of input inverse
+
+  deglitch_enable:
+    type: boolean
+    description: Enable signal of rx input de-glitch function
+
+  deglitch_cnt:
+    type: int
+    default: 0
+    description: De-glitch function cycle count
+
+  data_threshold:
+    type: int
+    default: 0
+    description: Pulse width threshold for logic 0/1 detection.
+
+  end_threshold:
+    type: int
+    default: 0
+    description: Pulse width threshold to trigger end condition.
+
+  fifo_threshold:
+    type: int
+    default: 0
+    description: RX FIFO threshold.

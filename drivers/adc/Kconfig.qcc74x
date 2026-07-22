@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config ADC_QCC74X
+	bool "Qualcomm Opal ADC driver"
+	default y
+	depends on ADC
+	depends on DT_HAS_QCOM_QCC74X_ADC_ENABLED
+	select ADC_CONFIGURABLE_INPUTS
+	help
+	  Enables ADC driver for Opal MCUs.
+
+if ADC_QCC74X
+
+config ADC_QCC74X_CHANNEL_COUNT_SETUP
+	int "Number of ADC channels supported by the driver"
+	range 1 32
+	default 12
+	help
+	  Number of ADC channels that can be setup. The number should be >=
+	  ADC_QCC74X_CHANNEL_COUNT. It is possible to setup
+	  ADC_QCC74X_CHANNEL_COUNT_SETUP channels, but read only
+	  ADC_QCC74X_CHANNEL_COUNT channels in one sequence.
+
+config ADC_QCC74X_CHANNEL_COUNT
+	int "Number of ADC channels supported by the driver"
+	range 1 12
+	default 12
+	help
+	  Number of ADC channels supported by the driver in scanning conversion
+	  mode. This is the maximum number of channels that can be read in
+	  one sequence.
+
+config ADC_QCC74X_DMA
+	bool "OAPL ADC DMA Support"
+	default n
+	depends on DT_HAS_QCOM_QCC74X_DMA_ENABLED
+	select DMA
+	help
+	  Enable ADC DMA mode for ADC instances that enable DMA channels in
+	  their device tree nodes.
+
+endif # ADC_QCC74X

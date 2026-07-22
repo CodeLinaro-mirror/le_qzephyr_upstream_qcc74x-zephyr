@@ -1,0 +1,24 @@
+# Copyright (c) 2022 Wolter HV <wolterhv@gmx.de>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Qualcomm QC7XX ADC
+
+compatible: "qualcomm,qc7xx-adc"
+
+include: [adc-controller.yaml, pinctrl-device.yaml]
+
+properties:
+
+  clk_div:
+    type: int
+    required: true
+    description: ADC clock division ratio.
+      Possible values are 4,8,12,16,20,24,32.
+
+  "#io-channel-cells":
+    const: 1
+
+io-channel-cells:
+  - input

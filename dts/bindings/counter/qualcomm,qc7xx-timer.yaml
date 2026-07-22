@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qualcomm's GP timer
+
+compatible: "qualcomm,qc7xx-timer"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  clocks:
+    required: true
+
+  channels:
+    type: int
+    required: true
+    description: Number of timer channels.
+
+  clock-source:
+    type: int
+    default: 0
+    description: Clock source of Timer.
+
+  clock-div:
+    type: int
+    default: 0
+    description: Timer prescaler.
+
+  counter-mode:
+    type: int
+    default: 0
+    description: Timer counter mode definition.
+
+  preload-id:
+    type: int
+    default: 0
+    description: When the value corresponding to preload_id is reached, reload the value of preload_val.
+
+  comp0-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 0.
+
+  comp1-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 1.
+
+  comp2-val:
+    type: int
+    default: 0
+    description: Trigger value of channel 2.
+
+  preload-val:
+    type: int
+    default: 0
+    description: Initial value for reloading.
