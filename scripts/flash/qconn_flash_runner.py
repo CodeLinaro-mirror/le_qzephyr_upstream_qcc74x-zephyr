@@ -83,13 +83,14 @@ def find_workspace_root(start_dir, markers=("zephyr", "modules"), max_levels=10)
 class QconnFlashRunner(ZephyrBinaryRunner):
     """Qconn_Flash_Cmd runner."""
 
-    def __init__(self, cfg, qconn_flash_cmd, interface, port, baud_rate):
+    def __init__(self, cfg, qconn_flash_cmd, interface, port, baud_rate, reset):
         """Initializes the QconnFlashRunner."""
         super().__init__(cfg)
         self.interface = interface
         self.qconn_flash_cmd = qconn_flash_cmd
         self.port = port
         self.baud_rate = baud_rate
+        self.reset = reset
 
     @classmethod
     def name(cls):
@@ -99,7 +100,7 @@ class QconnFlashRunner(ZephyrBinaryRunner):
     @classmethod
     def capabilities(cls):
         """Defines the runner's capabilities."""
-        return RunnerCaps(commands={"flash"})
+        return RunnerCaps(commands={"flash"}, reset=True)
 
     @classmethod
     def do_add_parser(cls, parser):
@@ -147,7 +148,7 @@ class QconnFlashRunner(ZephyrBinaryRunner):
 
         return cls(cfg, qconn_flash_cmd=qconn_flash_cmd,
                    interface=args.interface, port=args.port,
-                   baud_rate=args.baud_rate)
+                   baud_rate=args.baud_rate, reset=bool(args.reset))
 
     def do_run(self, _command, **_kwargs):
         """Executes the flash command."""
@@ -177,5 +178,7 @@ class QconnFlashRunner(ZephyrBinaryRunner):
                          '--port', self.port,
                          '--baudrate', self.baud_rate,
                          '--config', tmp_cfg_path]
+            if self.reset:
+                cmd_flash.append('--reset')
             self.logger.info(f"Flash binary, cmd_flash: {cmd_flash}")
             self.check_call(cmd_flash)

@@ -9,6 +9,11 @@
 # SPDX-License-Identifier: Apache-2.0.
 
 board_set_flasher_ifnset(qconn_flash)
+# west's generic multi-image reset logic defaults to appending --reset
+# whenever the runner declares reset support, unless --no-reset is
+# already present. Set that default here so --reset only takes effect
+# when the user explicitly passes it on the command line.
+board_runner_args(qconn_flash "--no-reset")
 board_finalize_runner_args(qconn_flash)
 
 # Resolve the QC7XX HAL SDK path. Prefer the west-provided module dir
