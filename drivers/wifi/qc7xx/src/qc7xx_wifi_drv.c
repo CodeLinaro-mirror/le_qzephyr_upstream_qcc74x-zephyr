@@ -46,7 +46,7 @@ uint16_t qc7xx_lp_beacon_interval_get(void);
 uint8_t qc7xx_lp_beacon_dtim_period_get(void);
 #endif
 
-#define TX_BUF_ALLOC_TIMEOUT 0
+#define TX_BUF_ALLOC_TIMEOUT (-1)
 #define DHCPV4_MASK (NET_EVENT_IPV4_DHCP_BOUND | NET_EVENT_IPV4_DHCP_STOP)
 #define WEP_PASSWORD_BUF_LEN (13 * 2 + 1)
 #define QC7XX_MONITOR_DEFAULT_CHANNEL 6U
@@ -845,7 +845,7 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 #endif
 	int res;
 	int pkt_len;
-	void *net_buf;
+	void *net_buf = NULL;
 
 	if (iface == NULL) {
 		return -EIO;
@@ -872,6 +872,7 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 	net_al_tx_buf_set_len(net_buf, pkt_len);
 
 	if (net_pkt_read(pkt, net_buf, pkt_len) < 0) {
+		res = -EIO;
 		goto out;
 	}
 
@@ -879,6 +880,7 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 	if (res < 0) {
 		goto out;
 	}
+	net_buf = NULL;
 
 #if defined(CONFIG_NET_STATISTICS_WIFI)
 	data->stats.bytes.sent += pkt_len;
@@ -896,17 +898,29 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 	return 0;
 
 out:
+	if (net_buf != NULL) {
+		net_al_tx_buf_free(net_buf);
+	}
+
 #if defined(CONFIG_NET_STATISTICS_WIFI)
 	data->stats.errors.tx++;
 #endif
-	return -EIO;
+	return res;
 }
 
 static int qc7xx_wifi_disconnect(const struct device *dev)
 {
-	ARG_UNUSED(dev);
+	struct qc7xx_wifi_runtime *data = dev->data;
+	bool disconnecting = data == &qc7xx_data && data->state == QC7XX_STA_CONNECTED;
+
+	if (disconnecting) {
+		data->state = QC7XX_STA_DISCONNECTING;
+	}
 
 	if (wifi_sta_disconnect() != 0) {
+		if (disconnecting) {
+			data->state = QC7XX_STA_CONNECTED;
+		}
 		return -EAGAIN;
 	}
 
@@ -1590,6 +1604,9 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 	case QC7XX_STA_CONNECTING:
 		status->state = WIFI_STATE_ASSOCIATING;
 		break;
+	case QC7XX_STA_DISCONNECTING:
+		status->state = WIFI_STATE_DISCONNECTED;
+		break;
 	case QC7XX_STA_CONNECTED:
 		status->state = WIFI_STATE_COMPLETED;
 		break;
@@ -1843,13 +1860,14 @@ static void qc7xx_wifi_handle_sta_connect_event(void *event_data)
 static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 {
 	uint8_t reason = (uint32_t)event_data;
+	bool disconnecting = qc7xx_data.state == QC7XX_STA_DISCONNECTING;
 
 	qc7xx_data.status.connected = false;
 	qc7xx_data.status.mfp = WIFI_MFP_DISABLE;
 	qc7xx_data.ps.enabled = WIFI_PS_DISABLED;
 	wifi_mgmr_sta_twt_cache_clear();
 
-	if (qc7xx_data.state == QC7XX_STA_CONNECTED) {
+	if (qc7xx_data.state == QC7XX_STA_CONNECTED || disconnecting) {
 #if defined(CONFIG_QC7XX_WIFI_STA_AUTO_DHCPV4)
 		net_dhcpv4_stop(qc7xx_wifi_iface);
 #endif

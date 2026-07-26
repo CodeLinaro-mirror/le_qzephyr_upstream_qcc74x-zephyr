@@ -40,12 +40,34 @@
 			i-cache-line-size = <32>;
 			d-cache-line-size = <32>;
 			clocks = <&clock0 QC7XX_PERIPHERAL_CPU QC7XX_MCU_SYS_CLK_TOP_WIFIPLL_320M>;
+			cpu-power-states = <&qcc74x_suspend_to_idle
+					    &qcc74x_suspend_to_ram>;
 
 			hlic: interrupt-controller {
 				compatible = "riscv,cpu-intc";
 				#address-cells = <0>;
 				#interrupt-cells = <1>;
 				interrupt-controller;
+			};
+		};
+
+		power-states {
+			qcc74x_suspend_to_idle: suspend-to-idle {
+				compatible = "zephyr,power-state";
+				power-state-name = "suspend-to-idle";
+				substate-id = <0>;
+				min-residency-us = <5000>;
+				exit-latency-us = <50>;
+				zephyr,pm-device-disabled;
+			};
+
+			qcc74x_suspend_to_ram: suspend-to-ram {
+				compatible = "zephyr,power-state";
+				power-state-name = "suspend-to-ram";
+				substate-id = <15>;
+				min-residency-us = <5000>;
+				exit-latency-us = <8000>;
+				zephyr,pm-device-disabled;
 			};
 		};
 	};

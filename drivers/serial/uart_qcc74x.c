@@ -18,9 +18,7 @@
 #ifdef CONFIG_UART_ASYNC_API
 #include <zephyr/drivers/dma.h>
 #endif
-#ifdef CONFIG_PM_DEVICE
 #include <zephyr/pm/device.h>
-#endif
 
 #include <hardware/glb_reg.h>
 #include <qc7xx_uart.h>
@@ -2187,7 +2185,6 @@ static int32_t uart_qcc74x_init(const struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_DEVICE
 /**
  * @brief Power management action handler
  *
@@ -2203,12 +2200,12 @@ static int32_t uart_qcc74x_pm_control(const struct device *dev, const enum pm_de
 
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
-		LOG_DBG("Resuming UART from sleep");
+		//LOG_DBG("Resuming UART from sleep");
 
 		/* Apply default pin configuration */
 		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
 		if (ret < 0) {
-			LOG_ERR("Failed to apply default pinctrl state: %d", ret);
+			//LOG_ERR("Failed to apply default pinctrl state: %d", ret);
 			return ret;
 		}
 
@@ -2217,14 +2214,14 @@ static int32_t uart_qcc74x_pm_control(const struct device *dev, const enum pm_de
 				       (clock_control_subsys_t)(uintptr_t)config->clock_id);
 		if (ret != 0) {
 			if (ret == -EALREADY) {
-				LOG_WRN("Clock for UART driver is already enabled");
+				//LOG_WRN("Clock for UART driver is already enabled");
 			} else {
-				LOG_ERR("Failed to enable UART clock: %d", ret);
+				//LOG_ERR("Failed to enable UART clock: %d", ret);
 				return ret;
 			}
 		}
 
-		LOG_DBG("UART resumed from sleep");
+		//LOG_DBG("UART resumed from sleep");
 		break;
 
 	case PM_DEVICE_ACTION_SUSPEND:
@@ -2253,7 +2250,97 @@ static int32_t uart_qcc74x_pm_control(const struct device *dev, const enum pm_de
 
 	return 0;
 }
-#endif /* CONFIG_PM_DEVICE */
+
+/*
+ * PDS15 glue compatibility shims.
+ *
+ * pm_pds15_glue.c calls qc7xx_uart_force_resume() and
+ * qc7xx_uart_force_irq_rearm() after PDS15 wakeup.  These thin wrappers
+ * provide the same external symbols, delegating to the uart_qcc74x driver's
+ * internal PM and IRQ functions.
+ */
+#include "qc7xx_uart.h"
+
+#define UART_QCC74X_RESUME_INTCLR_MASK                                        \
+	(UART_INTCLR_TX_END | UART_INTCLR_RX_END | UART_INTCLR_RTO |         \
+	 UART_INTCLR_PCE | UART_INTCLR_RX_LSE | UART_INTCLR_RX_BCR |        \
+	 UART_INTCLR_RX_ADS | UART_INTCLR_RX_AD5)
+
+static void uart_qcc74x_clear_resume_interrupts(const struct device *dev)
+{
+	struct uart_qcc74x_data *data = dev->data;
+
+	qc7xx_uart_int_clear(&data->hal_uart_cfg, UART_QCC74X_RESUME_INTCLR_MASK);
+}
+
+int qc7xx_uart_force_resume(const struct device *dev)
+{
+#ifdef CONFIG_PM_DEVICE
+	struct uart_qcc74x_data *data = dev->data;
+	const struct uart_qcc74x_config *config = dev->config;
+
+	int rc = uart_qcc74x_pm_control(dev, PM_DEVICE_ACTION_RESUME);
+	if (rc != 0) {
+		return rc;
+	}
+
+	/* Rebuild HAL config from current_cfg and reinit UART peripheral. */
+	struct qc7xx_uart_config_s uart_cfg = {
+		.baudrate         = data->current_cfg.baudrate,
+		.data_bits        = (uint8_t)data->current_cfg.data_bits,
+		.stop_bits        = (uint8_t)data->current_cfg.stop_bits,
+		.parity           = (uint8_t)data->current_cfg.parity,
+		.flow_ctrl        = (uint8_t)data->current_cfg.flow_ctrl,
+		.bit_order        = UART_LSB_FIRST,
+		.tx_fifo_threshold = 7,
+		.rx_fifo_threshold = 7,
+	};
+
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+	uart_qcc74x_irq_tx_disable(dev);
+	uart_qcc74x_irq_rx_disable(dev);
+	uart_qcc74x_irq_err_disable(dev);
+#endif
+	uart_qcc74x_clear_resume_interrupts(dev);
+	qc7xx_uart_init(&data->hal_uart_cfg, &uart_cfg);
+	uart_qcc74x_clear_resume_interrupts(dev);
+
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+	unsigned int irqn = DT_IRQN(DT_CHOSEN(zephyr_console));
+
+	irq_disable(irqn);
+	if (config->irq_config_func) {
+		config->irq_config_func(dev);
+	}
+	uart_qcc74x_irq_tx_disable(dev);
+	uart_qcc74x_irq_rx_disable(dev);
+	uart_qcc74x_irq_err_disable(dev);
+	uart_qcc74x_clear_resume_interrupts(dev);
+	irq_enable(irqn);
+#endif
+	return 0;
+#else
+	ARG_UNUSED(dev);
+	return 0;
+#endif
+}
+
+int qc7xx_uart_force_irq_rearm(const struct device *dev)
+{
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+	struct uart_qcc74x_data *data = dev->data;
+
+	/* After PDS15 wakeup RX interrupts may be masked. Re-enable them if a
+	 * callback was registered (mirrors BL uart_qc7xx_force_irq_rearm). */
+	if (data->user_cb != NULL) {
+		uart_qcc74x_irq_rx_enable(dev);
+		uart_qcc74x_irq_tx_enable(dev);
+	}
+#else
+	ARG_UNUSED(dev);
+#endif
+	return 0;
+}
 
 /* UART driver API structure */
 static const struct uart_driver_api uart_qcc74x_driver_api = {
@@ -2380,7 +2467,8 @@ static const struct uart_driver_api uart_qcc74x_driver_api = {
 		.rx_fifo_threshold = UART_FIFO_RX_THRESHOLD_DEFAULT,                               \
 		.reset = RESET_DT_SPEC_INST_GET(n),                                                \
 		UART_QCC74X_DMA_INIT(n) UART_QCC74X_IRQ_HANDLER_FUNC(n)};                              \
-	DEVICE_DT_INST_DEFINE(n, &uart_qcc74x_init, uart_qcc74x_pm_control, &uart##n##_data,           \
+	PM_DEVICE_DT_INST_DEFINE(n, uart_qcc74x_pm_control);                                           \
+	DEVICE_DT_INST_DEFINE(n, &uart_qcc74x_init, PM_DEVICE_DT_INST_GET(n), &uart##n##_data,        \
 			      &uart##n##_config, UART_QCC74X_INIT_LEVEL(n),                          \
 			      UART_QCC74X_INIT_PRIORITY(n), &uart_qcc74x_driver_api);                  \
 	UART_QCC74X_IRQ_HANDLER(n)

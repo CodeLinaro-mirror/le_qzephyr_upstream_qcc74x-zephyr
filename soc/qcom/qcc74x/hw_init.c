@@ -6,10 +6,16 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/dt-bindings/clock/qcc74x-clock.h>
 #include "qc7xx_clock.h"
+#include "qcc74x_clock.h"
 #include "qcc74x_glb.h"
 #include "qc7xx_flash.h"
 #include "qc7xx_peri.h"
 #include "qc7xx_xip_sflash.h"
+#include "qc7xx_core.h"
+#include "qc7xx_name.h"
+#include "qc7xx_sec_aes.h"
+#include "qc7xx_sec_pka.h"
+#include "qc7xx_sec_sha.h"
 
 #define FLASHCTRL_NODE DT_NODELABEL(flashctrl)
 #define FLASH_CLK_SRC  DT_CLOCKS_CELL_BY_IDX(FLASHCTRL_NODE, 0, source)
@@ -149,6 +155,65 @@ static uint8_t flash_org_delay = 0;
 static uint8_t flash_final_delay = 0;
 static uint8_t flash_added_delay = 0;
 #endif
+
+static void ATTR_CLOCK_SECTION __attribute__((noinline)) system_clock_init_lp(void)
+{
+	GLB_Power_On_XTAL_And_PLL_CLK(GLB_XTAL_40M, GLB_PLL_WIFIPLL | GLB_PLL_AUPLL);
+	GLB_Set_MCU_System_CLK(GLB_MCU_SYS_CLK_TOP_WIFIPLL_320M);
+	HBN_Set_MCU_XCLK_Sel(HBN_MCU_XCLK_XTAL);
+}
+
+static void __attribute__((noinline)) peripheral_clock_init_lp(void)
+{
+    uint32_t tmp_val = 0U;
+    struct qc7xx_device_s *aes = qc7xx_device_get_by_name(QC7XX_NAME_SEC_AES);
+    struct qc7xx_device_s *pka = qc7xx_device_get_by_name(QC7XX_NAME_SEC_PKA);
+    struct qc7xx_device_s *sha = qc7xx_device_get_by_name(QC7XX_NAME_SEC_SHA);
+
+    /* Match Bouffalo SDK board_recovery() LP path. 
+    tmp_val = BIT(GLB_CGEN_M_CPU_POS) | BIT(GLB_CGEN_M_DMA_POS) |
+              BIT(GLB_CGEN_M_SEC_POS) | BIT(GLB_CGEN_M_SDU_POS);
+    QC7XX_WR_REG(GLB_BASE, GLB_CGEN_CFG0, tmp_val);
+
+    tmp_val = BIT(GLB_CGEN_S1_RSVD0_POS) |
+              BIT(GLB_CGEN_S1_EF_CTRL_POS) |
+              BIT(GLB_CGEN_S1_SF_CTRL_POS) |
+              BIT(GLB_CGEN_S1_DMA_POS) |
+              BIT(GLB_CGEN_S1A_UART0_POS) |
+              BIT(GLB_CGEN_S1A_UART1_POS) |
+              BIT(GLB_CGEN_S1_SEC_ENG_POS);
+    QC7XX_WR_REG(GLB_BASE, GLB_CGEN_CFG1, tmp_val);
+
+    tmp_val = BIT(GLB_CGEN_S2_WIFI_POS) |
+              BIT(GLB_CGEN_S1_EXT_EMI_MISC_POS) |
+              BIT(GLB_CGEN_S1_EXT_PIO_POS);
+    QC7XX_WR_REG(GLB_BASE, GLB_CGEN_CFG2, tmp_val);*/
+
+    GLB_Set_UART_CLK(ENABLE, HBN_UART_CLK_XCLK, 0);
+    GLB_Set_PKA_CLK_Sel(GLB_PKA_CLK_MCU_MUXPLL_160M);
+
+    if (aes != NULL) {
+        qc7xx_group0_request_aes_access(aes);
+        qc7xx_aes_link_init(aes);
+    }
+
+    if (pka != NULL) {
+        qc7xx_pka_init(pka);
+    }
+
+    if (sha != NULL) {
+        qc7xx_group0_request_sha_access(sha);
+        qc7xx_sha_link_init(sha);
+    }
+
+#ifdef CONFIG_BSP_SDH_SDCARD
+    PERIPHERAL_CLOCK_SDH_ENABLE();
+    GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_SDH);
+#endif
+
+    PERIPHERAL_CLOCK_ADC_DAC_ENABLE();
+    GLB_Set_ADC_CLK(ENABLE, GLB_ADC_CLK_XCLK, 1);
+}
 
 static void peripheral_clock_init(void)
 {
@@ -395,6 +460,14 @@ int hardware_init(void)
 
 	peripheral_clock_init();
 
+	return 0;
+}
+
+int hardware_recovery_lp(void)
+{
+	system_clock_init_lp();
+	//GLB_Set_UART_CLK(ENABLE, HBN_UART_CLK_XCLK, 0);
+	peripheral_clock_init_lp();
 	return 0;
 }
 

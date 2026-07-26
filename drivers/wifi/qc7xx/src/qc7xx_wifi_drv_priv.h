@@ -17,6 +17,7 @@ enum qc7xx_state_flag {
 	QC7XX_STA_STARTED,
 	QC7XX_STA_MONITOR,
 	QC7XX_STA_CONNECTING,
+	QC7XX_STA_DISCONNECTING,
 	QC7XX_STA_CONNECTED,
 	QC7XX_AP_STARTED,
 	QC7XX_AP_CONNECTED,
@@ -75,6 +76,7 @@ void qc7xx_wifi_event_handler(uint32_t code, uint32_t code1);
 
 void net_al_tx_buf_init(void);
 void *net_al_tx_buf_alloc(int32_t timeout);
+void net_al_tx_buf_free(void *buf);
 void net_al_tx_buf_set_len(void *buf, int length);
 
 #endif /* ZEPHYR_DRIVERS_WIFI_QC7XX_WIFI_DRV_PRIV_H_ */

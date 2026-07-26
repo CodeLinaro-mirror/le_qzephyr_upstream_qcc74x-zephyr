@@ -18,6 +18,48 @@ zephyr_sources(
   soc_multi_heap.c
 )
 
+if(CONFIG_PM)
+  zephyr_sources(power.c)
+endif()
+
+zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_POLICY
+  pm_policy_qcc74x.c
+)
+
+zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_SYSTEM_TIMER
+  pm_pds15_timer.c
+)
+
+zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15
+  pm_pds15_glue.c
+  pm_pds15.c
+  ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qcc74x_lp.c
+  ${QC7XX_SDK_PATH}/drivers/lhal/src/qc7xx_acomp.c
+  ${QC7XX_SDK_PATH}/drivers/soc/qcc74x/std/startup/interrupt.c
+)
+
+set(LPFW_BIN
+  ${QC7XX_SDK_PATH}/zephyr/blobs/qcc74x/bin/qcc74x_lp_fw.bin)
+set(LPFW_PATCH
+  ${QC7XX_SDK_PATH}/tools/lpfw/patch_lpfw.py)
+
+if(CONFIG_QCC74X_PM_PDS15)
+  if(NOT EXISTS "${LPFW_BIN}")
+    message(FATAL_ERROR
+      "Missing qcc74x LPFW blob: ${LPFW_BIN}. "
+      "Fetch it with 'west blobs fetch hal_qualcomm' or ensure "
+      "modules/hal/qcom/qcc74x/zephyr/blobs/qcc74x/bin/qcc74x_lp_fw.bin exists.")
+  endif()
+  if(NOT EXISTS "${LPFW_PATCH}")
+    message(FATAL_ERROR "Missing LPFW patch tool: ${LPFW_PATCH}")
+  endif()
+  message(STATUS "QCC74X LPFW blob: ${LPFW_BIN}")
+  set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
+    COMMAND ${Python3_EXECUTABLE} ${LPFW_PATCH}
+      ${CMAKE_BINARY_DIR}/zephyr/${CONFIG_KERNEL_BIN_NAME}.bin
+      ${LPFW_BIN})
+endif()
+
 zephyr_include_directories(.)
 
 if(CONFIG_BUILD_OUTPUT_BIN)
