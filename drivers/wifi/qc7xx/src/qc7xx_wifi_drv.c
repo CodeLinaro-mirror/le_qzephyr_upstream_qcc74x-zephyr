@@ -1107,6 +1107,15 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	data->state = QC7XX_STA_CONNECTING;
 	data->status.connected = false;
 
+	if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
+		ret = wifi_mgmr_sta_autoconnect_enable();
+		if (ret != 0) {
+			data->state = QC7XX_STA_STARTED;
+			data->status.mfp = WIFI_MFP_DISABLE;
+			return -EIO;
+		}
+	}
+
 	ret = wifi_mgmr_sta_connect(&wifi_config);
 	if (ret != 0) {
 		data->state = QC7XX_STA_STARTED;
@@ -1892,7 +1901,9 @@ static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 		break;
 	}
 
-	if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U) {
+	if (disconnecting) {
+		qc7xx_data.state = QC7XX_STA_STARTED;
+	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U) {
 		qc7xx_data.state = QC7XX_STA_CONNECTING;
 		wifi_mgmr_sta_autoconnect_enable();
 	} else {

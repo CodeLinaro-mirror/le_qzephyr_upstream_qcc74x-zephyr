@@ -5,10 +5,13 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+#include <stdlib.h>
 #include <wireless_api.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_ip.h>
+#include "fhost.h"
 #include "qcc74x_glb.h"
+#include "wifi_mgmr_ext.h"
 
 static int soc_wifi_info_shell_cmd(const struct shell *shell, size_t argc, char **argv)
 {
@@ -245,6 +248,177 @@ static int soc_wifi_init_shell_cmd(const struct shell *shell, size_t argc, char 
     return 0;
 }
 
+static int soc_wifi_rc_parse_int(const char *str, int *value)
+{
+    char *endptr;
+    long parsed;
+
+    parsed = strtol(str, &endptr, 0);
+    if (*str == '\0' || *endptr != '\0') {
+        return -EINVAL;
+    }
+
+    *value = (int)parsed;
+    return 0;
+}
+
+static int soc_wifi_rc_idx_to_cfg(int fixed_rate_idx, uint8_t gi, uint16_t *fixed_rate_cfg)
+{
+    union fhost_rc_mcs_index {
+        struct {
+            uint32_t mcs : 3;
+            uint32_t nss : 2;
+        } ht;
+        struct {
+            uint32_t mcs : 4;
+            uint32_t nss : 3;
+        } vht;
+    };
+    const uint16_t first_ht = FIRST_HT;
+    const uint16_t first_vht = FIRST_VHT;
+    const uint16_t first_he_su = FIRST_HE_SU;
+    const uint16_t first_he_mu = FIRST_HE_MU;
+    const uint16_t first_he_er = FIRST_HE_ER;
+    const uint8_t ht_rates_per_mcs = 2 * 2;
+    const uint8_t vht_rates_per_mcs = 4 * 2;
+    const uint8_t he_su_rates_per_mcs = 4 * 3;
+    const uint8_t he_er_rates_per_mcs = 3;
+    const uint8_t max_vht_mcs = 10;
+    const uint8_t max_he_mcs = 12;
+    union fhost_rc_rate_ctrl_info rate_config;
+
+    if ((fixed_rate_idx < 0) || (fixed_rate_idx >= TOT_RATES)) {
+        *fixed_rate_cfg = 0xFFFF;
+        return 0;
+    }
+
+    rate_config.value = 0;
+    if (fixed_rate_idx < FIRST_OFDM) {
+        rate_config.format_mod_tx = FORMATMOD_NON_HT;
+        rate_config.gi_and_pre_type_tx = (fixed_rate_idx & 1) << 1;
+        rate_config.mcs_idx = fixed_rate_idx / 2;
+    } else if (fixed_rate_idx < first_ht) {
+        rate_config.format_mod_tx = FORMATMOD_NON_HT;
+        rate_config.mcs_idx = fixed_rate_idx - N_CCK + 4;
+    } else if (fixed_rate_idx < first_vht) {
+        union fhost_rc_mcs_index *rate = (union fhost_rc_mcs_index *)&rate_config;
+        int idx = fixed_rate_idx - first_ht;
+
+        rate_config.format_mod_tx = FORMATMOD_HT_MF;
+        rate->ht.nss = idx / (8 * ht_rates_per_mcs);
+        rate->ht.mcs = (idx % (8 * ht_rates_per_mcs)) / ht_rates_per_mcs;
+        rate_config.bw_tx = ((idx % (8 * ht_rates_per_mcs)) % ht_rates_per_mcs) / 2;
+        rate_config.gi_and_pre_type_tx = idx & 1;
+    } else if (fixed_rate_idx < first_he_su) {
+        union fhost_rc_mcs_index *rate = (union fhost_rc_mcs_index *)&rate_config;
+        int idx = fixed_rate_idx - first_vht;
+
+        rate_config.format_mod_tx = FORMATMOD_VHT;
+        rate->vht.nss = idx / (max_vht_mcs * vht_rates_per_mcs);
+        rate->vht.mcs = (idx % (max_vht_mcs * vht_rates_per_mcs)) / vht_rates_per_mcs;
+        rate_config.bw_tx = ((idx % (max_vht_mcs * vht_rates_per_mcs)) %
+                              vht_rates_per_mcs) / 2;
+        rate_config.gi_and_pre_type_tx = idx & 1;
+    } else if (fixed_rate_idx < first_he_mu) {
+        union fhost_rc_mcs_index *rate = (union fhost_rc_mcs_index *)&rate_config;
+        int idx = fixed_rate_idx - first_he_su;
+
+        rate_config.format_mod_tx = FORMATMOD_HE_SU;
+        rate_config.dcm_tx = idx / (4 * max_he_mcs * he_su_rates_per_mcs);
+        rate->vht.nss = (idx % (4 * max_he_mcs * he_su_rates_per_mcs)) /
+                         (max_he_mcs * he_su_rates_per_mcs);
+        rate->vht.mcs = (idx % (max_he_mcs * he_su_rates_per_mcs)) /
+                         he_su_rates_per_mcs;
+        rate_config.bw_tx = ((idx % (max_he_mcs * he_su_rates_per_mcs)) %
+                              he_su_rates_per_mcs) / 3;
+        rate_config.gi_and_pre_type_tx = idx % 3;
+    } else if (fixed_rate_idx < first_he_er) {
+        return -ENOTSUP;
+    } else {
+        union fhost_rc_mcs_index *rate = (union fhost_rc_mcs_index *)&rate_config;
+        int idx = fixed_rate_idx - first_he_er;
+
+        rate_config.format_mod_tx = FORMATMOD_HE_ER;
+        rate_config.dcm_tx = idx / (2 * 3 * he_er_rates_per_mcs);
+        rate_config.bw_tx = (idx % (2 * 3 * he_er_rates_per_mcs)) /
+                             (3 * he_er_rates_per_mcs);
+        rate_config.gi_and_pre_type_tx = idx % 3;
+        rate->vht.mcs = (idx % (3 * he_er_rates_per_mcs)) / he_er_rates_per_mcs;
+        rate->vht.nss = 0;
+    }
+
+    /* QCC74x supports 20 MHz and 40 MHz fixed-rate entries only. */
+    if (rate_config.bw_tx > 1) {
+        return -ENOTSUP;
+    }
+
+    if (gi != 0xFF) {
+        rate_config.gi_and_pre_type_tx = gi;
+    }
+
+    *fixed_rate_cfg = (uint16_t)rate_config.value;
+    return 0;
+}
+
+static int soc_wifi_rc_shell_cmd(const struct shell *shell, size_t argc, char **argv)
+{
+    int fixed_rate_idx = -1;
+    uint8_t gi = 0xFF;
+    uint16_t fixed_rate_cfg;
+    bool has_fixed_rate_idx = false;
+    int ret;
+
+    if (argc == 2 && strcmp(argv[1], "off") == 0) {
+        ret = wifi_mgmr_rate_config(0xFFFF);
+        shell_print(shell, "fixed rate disabled, ret=%d", ret);
+        return ret == 0 ? 0 : -EIO;
+    }
+
+    for (size_t i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-f") == 0) {
+            if (++i >= argc || soc_wifi_rc_parse_int(argv[i], &fixed_rate_idx) != 0) {
+                shell_print(shell, "invalid -f <idx>");
+                return -EINVAL;
+            }
+            has_fixed_rate_idx = true;
+        } else if (strcmp(argv[i], "-g") == 0) {
+            int gi_arg;
+
+            if (++i >= argc || soc_wifi_rc_parse_int(argv[i], &gi_arg) != 0 ||
+                gi_arg < 0 || gi_arg > 2) {
+                shell_print(shell, "invalid -g <0|1|2>");
+                return -EINVAL;
+            }
+            gi = (uint8_t)gi_arg;
+        } else {
+            shell_print(shell, "usage: soc_wifi rc -f <idx> [-g <0|1|2>]");
+            shell_print(shell, "       soc_wifi rc -f -1");
+            shell_print(shell, "       soc_wifi rc off");
+            return -EINVAL;
+        }
+    }
+
+    if (!has_fixed_rate_idx) {
+        shell_print(shell, "usage: soc_wifi rc -f <idx> [-g <0|1|2>]");
+        shell_print(shell, "       soc_wifi rc -f -1");
+        shell_print(shell, "       soc_wifi rc off");
+        return -EINVAL;
+    }
+
+    ret = soc_wifi_rc_idx_to_cfg(fixed_rate_idx, gi, &fixed_rate_cfg);
+    if (ret != 0) {
+        shell_print(shell, "unsupported fixed rate index or bandwidth %d, ret=%d",
+                    fixed_rate_idx, ret);
+        return ret;
+    }
+
+    ret = wifi_mgmr_rate_config(fixed_rate_cfg);
+    shell_print(shell, "fixed rate idx %d -> cfg 0x%04x, ret=%d",
+                fixed_rate_idx, fixed_rate_cfg, ret);
+
+    return ret == 0 ? 0 : -EIO;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
     sub_config,
     SHELL_CMD_ARG(info, NULL, "version and Wi-Fi buffer info\n", soc_wifi_info_shell_cmd, 1, 1),
@@ -253,6 +427,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
     SHELL_CMD_ARG(tcp, NULL, "tcp server echo\n", soc_wifi_tcpserver_shell_cmd, 1, 0),
     SHELL_CMD_ARG(reboot, NULL, "system reboot\n", soc_wifi_reboot_shell_cmd, 1, 0),
     SHELL_CMD_ARG(init, NULL, "wifi main start\n", soc_wifi_init_shell_cmd, 1, 0),
+    SHELL_CMD_ARG(rc, NULL, "rate control: rc -f <idx> [-g <0|1|2>], rc -f -1, rc off\n",
+                  soc_wifi_rc_shell_cmd, 1, 4),
     SHELL_SUBCMD_SET_END
 );
 SHELL_CMD_ARG_REGISTER(soc_wifi, &sub_config, "Wi-Fi commands", NULL, 1, 1);
