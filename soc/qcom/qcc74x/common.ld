@@ -202,6 +202,7 @@ SECTIONS
 
     .init_code :
     {
+        /* Keep every routine used before the PSRAM copy in executable ROM. */
         *system_qcc74x*.o*(.rodata*)
         *system_qcc74x*.o*(.srodata*)
         *system_qcc74x*.o*(.text*)
@@ -217,6 +218,15 @@ SECTIONS
         *rv_Sv39*.o*(.rodata*)
         *rv_Sv39*.o*(.srodata*)
         *rv_Sv39*.o*(.text*)
+
+	/*
+        *(.text.arch_bss_zero)
+        *(.text.arch_data_copy)
+        *(.text.arch_early_memset)
+        *(.text.arch_early_memcpy)
+        *(.text.memset)
+        *(.text.memcpy)
+	*/
     } > rom_header
 
     SECTION_PROLOGUE(reset,,)
@@ -447,12 +457,20 @@ SECTIONS
         . = ALIGN(32);
 
 #ifdef CONFIG_PSRAM_COPY_CODE
+        /* Relocate the library groups validated for PSRAM execution. */
+        *libapp.a*:*(.text*)
         *liblib*.a*:*(.text*)
         *libdriver*.a*:*(.text*)
         *libkernel.a*:*(.text*)
-        *liblib*.a*:*(.rodata*)
-        *libdriver*.a*:*(.rodata*)
-        *libkernel.a*:*(.rodata*)
+        *libsubsys*.a*:*(.text*)
+        *libzperf.a*:*(.text*)
+
+        *libapp.a*:*(.rodata* .srodata*)
+        *liblib*.a*:*(.rodata* .srodata*)
+        *libdriver*.a*:*(.rodata* .srodata*)
+        *libkernel.a*:*(.rodata* .srodata*)
+        *libsubsys*.a*:*(.rodata* .srodata*)
+        *libzperf.a*:*(.rodata* .srodata*)
         . = ALIGN(32);
 #endif
 
