@@ -65,6 +65,7 @@ struct emac_qcc74x_config {
 	void (*irq_config_func)(void);
 	const struct gpio_dt_spec reset_gpio; /* GPIO for reset pin */
 	uint32_t reg_base;
+	struct emac_qcc74x_buff_s *emac_buff; /* DMA buffer (rodata ptr → nocache RAM) */
 };
 
 static enum ethernet_hw_caps emac_qcc74x_get_capabilities(const struct device *dev)
@@ -386,6 +387,8 @@ int emac_qcc74x_init(const struct device *dev)
 	struct emac_qcc74x_dev_data *dev_data = dev->data;
 	int res = 0;
 
+	dev_data->emac_buff = dev_cfg->emac_buff;
+
 	/* Apply reset pulse if reset-gpios is specified */
 	if (dev_cfg->reset_gpio.port != NULL) {
 		if (!device_is_ready(dev_cfg->reset_gpio.port)) {
@@ -555,6 +558,10 @@ static const struct ethernet_api eth_api = {
                                                                                                    \
 	EMAC_QCC74X_IRQ_HANDLER(idx)                                                                 \
                                                                                                    \
+	static struct emac_qcc74x_buff_s                                                              \
+		__attribute__((section(".nocache_noinit_ram")))                                      \
+		emac_qcc74x_buff_##idx;                                                              \
+                                                                                                   \
 	static const struct emac_qcc74x_config emac_qcc74x_config_##idx = {                            \
 		.emac_qcc74x_phy_dev = DEVICE_DT_GET(DT_INST_PHANDLE(idx, phy_handle)),              \
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(idx)),                              \
@@ -566,16 +573,10 @@ static const struct ethernet_api eth_api = {
 		.irq_config_func = emac_qcc74x_irq_cfg_func_##idx,                                   \
 		.reset_gpio = GPIO_DT_SPEC_INST_GET_OR(idx, reset_gpios, {0}),                     \
 		.reg_base = DT_INST_REG_ADDR(idx),                                                 \
+		.emac_buff = &emac_qcc74x_buff_##idx,                                               \
 	};                                                                                         \
                                                                                                    \
-	static __nocache_noinit struct emac_qcc74x_buff_s emac_qcc74x_buff_##idx;                      \
-                                                                                                   \
-	static struct emac_qcc74x_dev_data emac_qcc74x_dev_data_##idx = {                              \
-		.emac_dev = {NULL, 0, 0xFF, 0, 0, 0, NULL},                                        \
-		.emac_buff = &emac_qcc74x_buff_##idx,                                                \
-		.mac_addr = DT_INST_PROP_OR(idx, local_mac_address, ({0, 0, 0, 0, 0, 0})),         \
-		.mac_random_flag = DT_INST_PROP_OR(idx, random_mac_address, false),                \
-	};                                                                                         \
+	static struct emac_qcc74x_dev_data emac_qcc74x_dev_data_##idx;                              \
                                                                                                    \
 	ETH_NET_DEVICE_DT_INST_DEFINE(idx, emac_qcc74x_init, NULL, &emac_qcc74x_dev_data_##idx,        \
 				      &emac_qcc74x_config_##idx, CONFIG_ETH_INIT_PRIORITY, &eth_api, \
