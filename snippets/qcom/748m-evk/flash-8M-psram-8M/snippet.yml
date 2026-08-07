@@ -1,0 +1,7 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+name: qcom-748m-evk-flash-8M-psram-8M
+append:
+  EXTRA_CONF_FILE: qcom_psram.conf
+  EXTRA_DTC_OVERLAY_FILE: qcom_748m_evk_flash_8M_psram_8M.overlay

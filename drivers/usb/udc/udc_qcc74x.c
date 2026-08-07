@@ -92,6 +92,7 @@ struct udc_qcc74x_config {
 struct udc_qcc74x_data {
 	bool ep_is_in[NUM_BIDIR_ENDPOINTS];
 	bool setup_received;
+	uint8_t setup[8];
 	k_timepoint_t reset_expiration;
 	/* Workaround for the first few packets not triggering the interrupt
 	 * when very quickly interacting with the USB */
@@ -612,19 +613,10 @@ static uint32_t udc_qcc74x_ctrl_remain(const struct device *const dev)
  */
 static void udc_qcc74x_ctrl_setup_start(const struct device *const dev)
 {
-	struct net_buf *buf = NULL;
-	struct udc_ep_config *const ep_cfg = udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT);
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 
-	buf = udc_ctrl_alloc(dev, USB_CONTROL_EP_OUT, 8U);
-	if (buf == NULL) {
-		udc_submit_event(dev, UDC_EVT_ERROR, -ENOMEM);
-	}
-
-	udc_ep_buf_set_setup(buf);
-	udc_buf_put(ep_cfg, buf);
-	net_buf_add(buf, 8U);
-
-	udc_qcc74x_vdma_startread_ctrl(dev, buf->data, 8U);
+	/* Read 8-byte SETUP packet into private buffer, then notify stack */
+	udc_qcc74x_vdma_startread_ctrl(dev, priv->setup, 8U);
 }
 
 /**
@@ -640,17 +632,11 @@ static void udc_qcc74x_ctrl_dout_start(const struct device *const dev, const uin
 
 	LOG_DBG("Ctrl dout start ep 0x%02x", ep_cfg->addr);
 
-	if (!udc_ctrl_stage_is_data_out(dev) || udc_qcc74x_ctrl_remain(dev) != 0) {
-		LOG_ERR("Unexpected control dout token");
-	}
-
-	buf = udc_ctrl_alloc(dev, USB_CONTROL_EP_OUT, size);
+	buf = udc_buf_peek(ep_cfg);
 	if (buf == NULL) {
-		udc_submit_event(dev, UDC_EVT_ERROR, -ENOMEM);
+		LOG_ERR("No buffer queued for ctrl OUT");
+		return;
 	}
-
-	udc_buf_put(ep_cfg, buf);
-	net_buf_add(buf, size);
 
 	udc_qcc74x_vdma_startread_ctrl(dev, buf->data, size);
 }
@@ -667,13 +653,10 @@ static void udc_qcc74x_ctrl_din_start(const struct device *const dev)
 
 	LOG_DBG("Ctrl din start ep 0x%02x", ep_cfg->addr);
 
-	if (!udc_ctrl_stage_is_data_in(dev) || udc_qcc74x_ctrl_remain(dev) != 0) {
-		LOG_ERR("Unexpected control din token");
-	}
-
-	buf = udc_buf_peek(dev, USB_CONTROL_EP_IN);
+	buf = udc_buf_peek(ep_cfg);
 	if (buf == NULL) {
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENODATA);
+		return;
 	}
 
 	LOG_DBG("Start DMA for buf %p, data %p, len %i", (void *)buf, (void *)buf->data, buf->len);
@@ -697,44 +680,26 @@ static int udc_qcc74x_ctrl_evt_end(const struct device *const dev)
 	int err = 0;
 
 	if (priv->setup_received) {
-		/* Setup stage */
-		buf = udc_buf_get(dev, USB_CONTROL_EP_OUT);
-		udc_ctrl_update_stage(dev, buf);
+		/* SETUP stage completed — notify the stack */
 		priv->setup_received = false;
-
-		if (udc_ctrl_stage_is_data_in(dev)) {
-			return udc_ctrl_submit_s_in_status(dev);
-		} else if (udc_ctrl_stage_is_data_out(dev)) {
-			udc_qcc74x_ctrl_dout_start(dev, udc_data_stage_length(buf));
-		} else if (udc_ctrl_stage_is_no_data(dev)) {
-			struct usb_setup_packet *spkg = (struct usb_setup_packet *)buf->data;
-			/* Stack queue too slow */
-			if (spkg->bRequest == USB_SREQ_SET_ADDRESS) {
-				udc_qcc74x_set_address(dev, spkg->wValue);
-			}
-			return udc_ctrl_submit_s_status(dev);
-		}
-	} else if (udc_ctrl_stage_is_data_out(dev)) {
-		buf = udc_buf_get(dev, USB_CONTROL_EP_OUT);
-		udc_ctrl_update_stage(dev, buf);
-		return udc_ctrl_submit_s_out_status(dev, buf);
-	} else if (udc_ctrl_stage_is_data_in(dev)) {
-		buf = udc_buf_get(dev, USB_CONTROL_EP_IN);
-		net_buf_unref(buf);
-		buf = udc_buf_get(dev, USB_CONTROL_EP_OUT);
-		udc_ctrl_update_stage(dev, buf);
-		if (udc_ctrl_stage_is_status_out(dev)) {
-			buf = udc_ctrl_alloc(dev, USB_CONTROL_EP_OUT, 0U);
-			err = udc_ctrl_submit_status(dev, buf);
-			udc_ctrl_update_stage(dev, buf);
-			net_buf_unref(buf);
-			return err;
-		}
+		udc_setup_received(dev, priv->setup);
 	} else {
-		LOG_ERR("Completed VDMA transfer of Unknown Stage");
+		/* DATA or STATUS stage completed — dequeue and submit */
+		struct udc_ep_config *ep_cfg_out = udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT);
+		struct udc_ep_config *ep_cfg_in = udc_get_ep_cfg(dev, USB_CONTROL_EP_IN);
+
+		buf = udc_buf_get(ep_cfg_out);
+		if (buf != NULL) {
+			err = udc_submit_ep_event(dev, buf, 0);
+		} else {
+			buf = udc_buf_get(ep_cfg_in);
+			if (buf != NULL) {
+				err = udc_submit_ep_event(dev, buf, 0);
+			}
+		}
 	}
 
-	return 0;
+	return err;
 }
 
 /**
@@ -776,7 +741,7 @@ static void udc_qcc74x_ep_dout_start(const struct device *const dev,
 		LOG_ERR("Unexpected ep 0x%02x dout token", ep_cfg->addr);
 	}
 
-	buf = udc_buf_peek(dev, ep_cfg->addr);
+	buf = udc_buf_peek(ep_cfg);
 	if (buf == NULL) {
 		LOG_ERR("No buffer for OUT ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
@@ -810,7 +775,7 @@ static void udc_qcc74x_ep_din_start(const struct device *const dev,
 		LOG_ERR("Unexpected ep 0x%02x din token", ep_cfg->addr);
 	}
 
-	buf = udc_buf_peek(dev, ep_cfg->addr);
+	buf = udc_buf_peek(ep_cfg);
 	if (buf == NULL) {
 		LOG_ERR("No buffer for IN ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
@@ -840,7 +805,7 @@ static int udc_qcc74x_ep_evt_end(const struct device *const dev, struct udc_ep_c
 	struct net_buf *buf = NULL;
 	uint32_t remain = 0U;
 
-	buf = udc_buf_get(dev, ep_cfg->addr);
+	buf = udc_buf_get(ep_cfg);
 	LOG_DBG("Event end for 0x%02x got buf %lx, len %u, size %u", ep_cfg->addr, (uintptr_t)buf,
 		buf->len, buf->size);
 	if (buf == NULL) {
@@ -868,12 +833,12 @@ static void udc_qcc74x_work_handler_xfer(const struct device *const dev,
 				       struct udc_ep_config *const ep_cfg)
 {
 	struct udc_qcc74x_data *const priv = udc_get_private(dev);
-	const struct net_buf *buf = udc_buf_peek(dev, ep_cfg->addr);
+	const struct net_buf *buf = udc_buf_peek(ep_cfg);
 	const uint8_t ep_idx = USB_EP_GET_IDX(ep_cfg->addr);
 
 	if (USB_EP_DIR_IS_OUT(ep_cfg->addr)) {
 		priv->ep_is_in[ep_idx] = false;
-		udc_ep_set_busy(dev, ep_cfg->addr, true);
+		udc_ep_set_busy(ep_cfg, true);
 		udc_qcc74x_ep_dout_start(dev, ep_cfg);
 	} else if (buf->len == 0) {
 		LOG_DBG("IN: EMPTY LENGTH");
@@ -884,7 +849,7 @@ static void udc_qcc74x_work_handler_xfer(const struct device *const dev,
 			LOG_DBG("IN: ZLP");
 		}
 		priv->ep_is_in[ep_idx] = true;
-		udc_ep_set_busy(dev, ep_cfg->addr, true);
+		udc_ep_set_busy(ep_cfg, true);
 		udc_qcc74x_ep_din_start(dev, ep_cfg);
 	}
 }
@@ -903,9 +868,9 @@ static void udc_qcc74x_work_handler_check(const struct device *const dev,
 	uint32_t done =
 		sys_read32(cfg->base + USB_DEV_ISG3_OFFSET) & (1U << udc_qcc74x_ep_get_fifo(ep_cfg));
 
-	if (udc_ep_is_busy(dev, ep_cfg->addr)) {
+	if (udc_ep_is_busy(ep_cfg)) {
 		err = udc_qcc74x_ep_evt_end(dev, ep_cfg);
-		udc_ep_set_busy(dev, ep_cfg->addr, false);
+		udc_ep_set_busy(ep_cfg, false);
 		if (unlikely(err)) {
 			udc_submit_event(dev, UDC_EVT_ERROR, err);
 		}
@@ -939,9 +904,9 @@ static void udc_qcc74x_work_handler(struct k_work *item)
 			err = udc_qcc74x_ctrl_evt_end(ev->dev);
 			break;
 		case UBFQCC7XX_EVT_END:
-			if (udc_ep_is_busy(ev->dev, ep_cfg->addr)) {
+			if (udc_ep_is_busy(ep_cfg)) {
 				err = udc_qcc74x_ep_evt_end(ev->dev, ep_cfg);
-				udc_ep_set_busy(ev->dev, ep_cfg->addr, false);
+				udc_ep_set_busy(ep_cfg, false);
 			}
 			break;
 		case UBFQCC7XX_EVT_XFER:
@@ -1015,7 +980,7 @@ static int udc_qcc74x_ep_enqueue(const struct device *const dev, struct udc_ep_c
 		return 0;
 	}
 
-	if (udc_ep_is_busy(dev, config->addr)) {
+	if (udc_ep_is_busy(config)) {
 		LOG_WRN("ep 0x%02x is busy", config->addr);
 		return -EBUSY;
 	}
@@ -1023,17 +988,16 @@ static int udc_qcc74x_ep_enqueue(const struct device *const dev, struct udc_ep_c
 	if (ep_idx == 0) {
 		if (USB_EP_DIR_IS_OUT(config->addr)) {
 			udc_buf_put(config, buf);
-			udc_qcc74x_ctrl_dout_start(dev, udc_data_stage_length(buf));
+			udc_qcc74x_ctrl_dout_start(dev, buf->size);
 		} else if (buf->len == 0) {
 			udc_qcc74x_ctrl_ack(dev);
-			udc_ctrl_submit_status(dev, buf);
-			udc_ctrl_update_stage(dev, buf);
+			udc_submit_ep_event(dev, buf, 0);
 		} else {
 			udc_buf_put(config, buf);
 			udc_qcc74x_ctrl_din_start(dev);
 		}
 	} else {
-		if (udc_buf_peek(dev, config->addr) == NULL) {
+		if (udc_buf_peek(config) == NULL) {
 			udc_buf_put(config, buf);
 			udc_qcc74x_work_handler_xfer(dev, config);
 		} else {
@@ -1048,15 +1012,9 @@ static int udc_qcc74x_ep_enqueue(const struct device *const dev, struct udc_ep_c
 static int udc_qcc74x_ep_dequeue(const struct device *const dev, struct udc_ep_config *const cfg)
 {
 	unsigned int lock_key = 0U;
-	struct net_buf *buf = NULL;
 
 	lock_key = irq_lock();
-
-	buf = udc_buf_get_all(dev, cfg->addr);
-	if (buf != NULL) {
-		udc_submit_ep_event(dev, buf, -ECONNABORTED);
-	}
-
+	udc_ep_cancel_queued(dev, cfg);
 	irq_unlock(lock_key);
 
 	return 0;
@@ -1114,7 +1072,7 @@ static int udc_qcc74x_ep_disable(const struct device *const dev, struct udc_ep_c
 {
 	LOG_DBG("Disable ep 0x%02x", config->addr);
 
-	udc_ep_set_busy(dev, config->addr, false);
+	udc_ep_set_busy(config, false);
 
 	return 0;
 }

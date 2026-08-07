@@ -82,6 +82,213 @@
 #define UART1_RXD_GPIO30                                                                        \
 	QC7XX_PINMUX(30 | (GPIO_UART_FUNC_UART1_RXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
 		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_RXD_GPIO29                                                                        \
+	QC7XX_PINMUX(29 | (GPIO_UART_FUNC_UART1_RXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_TXD_GPIO28                                                                        \
+	QC7XX_PINMUX(28 | (GPIO_UART_FUNC_UART1_TXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for ISO11898 (CAN) - signal routed through UART mux */
+#define GPIO_UART_FUNC_ISO11898_TXD  10
+#define GPIO_UART_FUNC_ISO11898_RXD  11
+#define ISO11898_TXD_GPIO20                                                                     \
+	QC7XX_PINMUX(20 | (GPIO_UART_FUNC_ISO11898_TXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define ISO11898_RXD_GPIO16                                                                     \
+	QC7XX_PINMUX(16 | (GPIO_UART_FUNC_ISO11898_RXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for I2C1 */
+#define I2C1_SCL_GPIO18                                                                         \
+	QC7XX_PINMUX(18, GPIO_FUN_I2C1 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2C1_SDA_GPIO19                                                                         \
+	QC7XX_PINMUX(19, GPIO_FUN_I2C1 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for PWM0 */
+#define PWM0_CH0P_GPIO4                                                                         \
+	QC7XX_PINMUX(4, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH0P_GPIO20                                                                        \
+	QC7XX_PINMUX(20, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for I2S0 */
+#define I2S0_BCLK_GPIO16                                                                        \
+	QC7XX_PINMUX(16, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_FS_GPIO17                                                                          \
+	QC7XX_PINMUX(17, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DO_GPIO31                                                                          \
+	QC7XX_PINMUX(31, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DI_GPIO34                                                                          \
+	QC7XX_PINMUX(34, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for SPI0 */
+#define SPI0_SCLK_GPIO13                                                                        \
+	QC7XX_PINMUX(13, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MISO_GPIO10                                                                        \
+	QC7XX_PINMUX(10, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MOSI_GPIO11                                                                        \
+	QC7XX_PINMUX(11, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_DRV_1)
+#define SPI0_SS_GPIO12                                                                          \
+	QC7XX_PINMUX(12, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_SCLK_GPIO25                                                                        \
+	QC7XX_PINMUX(25, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MISO_GPIO26                                                                        \
+	QC7XX_PINMUX(26, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MOSI_GPIO23                                                                        \
+	QC7XX_PINMUX(23, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_DRV_1)
+#define SPI0_SS_GPIO24                                                                          \
+	QC7XX_PINMUX(24, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_SCLK_GPIO29                                                                        \
+	QC7XX_PINMUX(29, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MISO_GPIO30                                                                        \
+	QC7XX_PINMUX(30, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MOSI_GPIO27                                                                        \
+	QC7XX_PINMUX(27, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_DRV_1)
+#define SPI0_SS_GPIO28                                                                          \
+	QC7XX_PINMUX(28, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MISO_GPIO34                                                                        \
+	QC7XX_PINMUX(34, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_MOSI_GPIO31                                                                        \
+	QC7XX_PINMUX(31, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_DRV_1)
+#define SPI0_SCLK_GPIO33                                                                        \
+	QC7XX_PINMUX(33, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SPI0_SS_GPIO32                                                                          \
+	QC7XX_PINMUX(32, GPIO_FUN_SPI | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for CLKOUT */
+#define CLKOUT_GPIO0                                                                            \
+	QC7XX_PINMUX(0, GPIO_FUN_CLKOUT | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for PWM0 additional channels */
+#define PWM0_CH1P_GPIO1                                                                         \
+	QC7XX_PINMUX(1, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH0N_GPIO1                                                                         \
+	QC7XX_PINMUX(1, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for IR RX - ir_flag=1 encoded in bits[28:24] (same field as uart_sig).
+ * The pin argument encodes both pin number (bits[7:0]) and ir_flag (bit[8]):
+ *   pin | (1U << (QC7XX_PIN_IR_FLAG_SHIFT - QC7XX_PIN_NUM_SHIFT))
+ * The V44 driver reads QC7XX_PIN_GET_IR_FLAG(pinmux) and calls GLB_IR_RX_GPIO_Sel().
+ */
+#define IR_RX_GPIO9                                                                             \
+	QC7XX_PINMUX(9U  | (1U << (QC7XX_PIN_IR_FLAG_SHIFT - QC7XX_PIN_NUM_SHIFT)),            \
+		       GPIO_FUN_GPIO | GPIO_INPUT | GPIO_SMT_EN | GPIO_DRV_1)
+#define IR_RX_GPIO10                                                                            \
+	QC7XX_PINMUX(10U | (1U << (QC7XX_PIN_IR_FLAG_SHIFT - QC7XX_PIN_NUM_SHIFT)),            \
+		       GPIO_FUN_GPIO | GPIO_INPUT | GPIO_SMT_EN | GPIO_DRV_1)
+#define IR_RX_GPIO20                                                                            \
+	QC7XX_PINMUX(20U | (1U << (QC7XX_PIN_IR_FLAG_SHIFT - QC7XX_PIN_NUM_SHIFT)),            \
+		       GPIO_FUN_GPIO | GPIO_INPUT | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for I2C0 */
+#define I2C0_SCL_GPIO18                                                                         \
+	QC7XX_PINMUX(18, GPIO_FUN_I2C0 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2C0_SDA_GPIO19                                                                         \
+	QC7XX_PINMUX(19, GPIO_FUN_I2C0 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2C0_SCL_GPIO30                                                                         \
+	QC7XX_PINMUX(30, GPIO_FUN_I2C0 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2C0_SDA_GPIO29                                                                         \
+	QC7XX_PINMUX(29, GPIO_FUN_I2C0 | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for SDH */
+#define SDH_DAT1_GPIO10                                                                         \
+	QC7XX_PINMUX(10, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDH_DAT0_GPIO11                                                                         \
+	QC7XX_PINMUX(11, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDH_CLK_GPIO12                                                                          \
+	QC7XX_PINMUX(12, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDH_CMD_GPIO13                                                                          \
+	QC7XX_PINMUX(13, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDH_DAT3_GPIO14                                                                         \
+	QC7XX_PINMUX(14, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDH_DAT2_GPIO15                                                                         \
+	QC7XX_PINMUX(15, GPIO_FUN_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for SDIO */
+#define SDIO_DAT0_GPIO14                                                                        \
+	QC7XX_PINMUX(14, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDIO_DAT1_GPIO15                                                                        \
+	QC7XX_PINMUX(15, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDIO_DAT2_GPIO10                                                                        \
+	QC7XX_PINMUX(10, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDIO_DAT3_GPIO11                                                                        \
+	QC7XX_PINMUX(11, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDIO_CMD_GPIO12                                                                         \
+	QC7XX_PINMUX(12, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define SDIO_CLK_GPIO13                                                                         \
+	QC7XX_PINMUX(13, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for I2S0 additional pin combinations */
+#define I2S0_BCLK_GPIO8                                                                         \
+	QC7XX_PINMUX(8,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_FS_GPIO5                                                                           \
+	QC7XX_PINMUX(5,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DI_GPIO6                                                                           \
+	QC7XX_PINMUX(6,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2S0_DO_GPIO7                                                                           \
+	QC7XX_PINMUX(7,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DI_GPIO30                                                                          \
+	QC7XX_PINMUX(30, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2S0_DO_GPIO27                                                                          \
+	QC7XX_PINMUX(27, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for EMAC (RMII) */
+#define EMAC_REF_CLK_GPIO25                                                                     \
+	QC7XX_PINMUX(25, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define EMAC_TXD0_GPIO26                                                                        \
+	QC7XX_PINMUX(26, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define EMAC_TXD1_GPIO27                                                                        \
+	QC7XX_PINMUX(27, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define EMAC_RXD0_GPIO28                                                                        \
+	QC7XX_PINMUX(28, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define EMAC_RXD1_GPIO29                                                                        \
+	QC7XX_PINMUX(29, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define EMAC_RXERR_GPIO30                                                                       \
+	QC7XX_PINMUX(30, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define EMAC_TX_EN_GPIO31                                                                       \
+	QC7XX_PINMUX(31, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define EMAC_RX_DV_GPIO32                                                                       \
+	QC7XX_PINMUX(32, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define EMAC_MDC_GPIO33                                                                         \
+	QC7XX_PINMUX(33, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define EMAC_MDIO_GPIO34                                                                        \
+	QC7XX_PINMUX(34, GPIO_FUN_EMAC | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+
+/* V44-format macros for AUDAC */
+#define AUDAC_PWM_P_GPIO14                                                                      \
+	QC7XX_PINMUX(14, GPIO_FUN_AUDAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define AUDAC_PWM_N_GPIO15                                                                      \
+	QC7XX_PINMUX(15, GPIO_FUN_AUDAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define AUDAC_PWM_P_GPIO22                                                                      \
+	QC7XX_PINMUX(22, GPIO_FUN_AUDAC | GPIO_ALTERNATE | GPIO_DRV_1)
+#define AUDAC_PWM_N_GPIO23                                                                      \
+	QC7XX_PINMUX(23, GPIO_FUN_AUDAC | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for DBI-C */
+#define DBI_C_SCL_GPIO12                                                                        \
+	QC7XX_PINMUX(12, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
+#define DBI_C_CSn_GPIO13                                                                        \
+	QC7XX_PINMUX(13, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
+#define DBI_C_SDA0_GPIO14                                                                       \
+	QC7XX_PINMUX(14, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
+#define DBI_C_DCn_GPIO15                                                                        \
+	QC7XX_PINMUX(15, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
+
+/* V44-format macros for analog (ADC/DAC/AUADC) - no digital buffer, no pull */
+#define ADC_CH8_GPIO1                                                                           \
+	QC7XX_PINMUX(1,  GPIO_FUN_ANALOG)
+#define ADC_CH2_GPIO2                                                                           \
+	QC7XX_PINMUX(2,  GPIO_FUN_ANALOG)
+#define ADC_CH3_GPIO3                                                                           \
+	QC7XX_PINMUX(3,  GPIO_FUN_ANALOG)
+#define ADC_CH0_GPIO20                                                                          \
+	QC7XX_PINMUX(20, GPIO_FUN_ANALOG)
+#define ADC_CH10_GPIO27                                                                         \
+	QC7XX_PINMUX(27, GPIO_FUN_ANALOG)
+#define AUADC_CH4_GPIO27                                                                        \
+	QC7XX_PINMUX(27, GPIO_FUN_ANALOG)
+#define AUADC_CH7_GPIO30                                                                        \
+	QC7XX_PINMUX(30, GPIO_FUN_ANALOG)
 
 #define GPIO0_SPI_SS          QC7XX_PINMUX(0, SPI, none)
 #define GPIO0_I2S_BCLK        QC7XX_PINMUX(0, I2S, none)

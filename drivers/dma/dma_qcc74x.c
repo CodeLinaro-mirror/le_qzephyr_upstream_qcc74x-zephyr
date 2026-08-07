@@ -61,17 +61,31 @@ static void dma_qcc74x_src_addr_cache_clean(struct dma_qcc74x_channel *channel)
 			continue;
 		}
 
+		/* XIP flash (0xa0xxxxxx) is read-only; its cache lines can
+		 * never be dirty.  Calling sys_cache_data_flush_range on an
+		 * XIP address triggers a global D-cache clean on this
+		 * hardware (~52 ms), with no benefit.  Skip it entirely. */
+		if ((channel->transfers[i].src_addr >> 24) == 0xa0U) {
+			continue;
+		}
+
 		if (channel->transfers[i].src_addr % sys_cache_data_line_size_get() != 0) {
 			LOG_WRN("DMA channel %d src_addr 0x%08x is not cache line aligned",
 				channel->channel_id, channel->transfers[i].src_addr);
 		}
 
 		if (channel->dma_ch_cfg.src_addr_inc == DMA_ADDR_INCREMENT_ENABLE) {
-			cache_data_flush_range((void *)(uintptr_t)channel->transfers[i].src_addr,
-					       channel->transfers[i].nbytes);
+			uint32_t line  = sys_cache_data_line_size_get();
+			uint32_t start = ROUND_DOWN(channel->transfers[i].src_addr, line);
+			uint32_t end   = ROUND_UP(channel->transfers[i].src_addr +
+						  channel->transfers[i].nbytes, line);
+			sys_cache_data_flush_range((void *)(uintptr_t)start, end - start);
 		} else {
-			cache_data_flush_range((void *)(uintptr_t)channel->transfers[i].src_addr,
-					       channel->dma_ch_cfg.src_width);
+			uint32_t line  = sys_cache_data_line_size_get();
+			uint32_t start = ROUND_DOWN(channel->transfers[i].src_addr, line);
+			uint32_t end   = ROUND_UP(channel->transfers[i].src_addr +
+						  channel->dma_ch_cfg.src_width, line);
+			sys_cache_data_flush_range((void *)(uintptr_t)start, end - start);
 		}
 	}
 }
@@ -95,11 +109,17 @@ static void dma_qcc74x_dest_addr_cache_invalidate_priv(struct dma_qcc74x_channel
 		}
 
 		if (channel->dma_ch_cfg.dst_addr_inc == DMA_ADDR_INCREMENT_ENABLE) {
-			cache_data_invd_range((void *)(uintptr_t)channel->transfers[i].dst_addr,
-					      channel->transfers[i].nbytes);
+			uint32_t line  = sys_cache_data_line_size_get();
+			uint32_t start = ROUND_DOWN(channel->transfers[i].dst_addr, line);
+			uint32_t end   = ROUND_UP(channel->transfers[i].dst_addr +
+						  channel->transfers[i].nbytes, line);
+			sys_cache_data_flush_and_invd_range((void *)(uintptr_t)start, end - start);
 		} else {
-			cache_data_invd_range((void *)(uintptr_t)channel->transfers[i].dst_addr,
-					      channel->dma_ch_cfg.dst_width);
+			uint32_t line  = sys_cache_data_line_size_get();
+			uint32_t start = ROUND_DOWN(channel->transfers[i].dst_addr, line);
+			uint32_t end   = ROUND_UP(channel->transfers[i].dst_addr +
+						  channel->dma_ch_cfg.dst_width, line);
+			sys_cache_data_flush_and_invd_range((void *)(uintptr_t)start, end - start);
 		}
 	}
 }

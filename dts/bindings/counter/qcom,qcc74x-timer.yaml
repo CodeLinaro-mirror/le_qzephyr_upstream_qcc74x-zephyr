@@ -55,6 +55,7 @@ properties:
       - 0
       - 1
     description: Index of the peripheral to be used.
+                 It should be 0 for TIMER0 and 1 for TIMER1.
 
   comp0-val:
     type: int

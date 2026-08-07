@@ -18,6 +18,7 @@
 #include <zephyr/drivers/reset.h>
 #ifdef CONFIG_UART_ASYNC_API
 #include <zephyr/drivers/dma.h>
+#include <zephyr/cache.h>
 #endif
 #include <zephyr/pm/device.h>
 
@@ -1019,6 +1020,15 @@ static void uart_qcc74x_async_handle_rto_interrupt(const struct device *dev,
 			irq_unlock(key);
 
 			uart_qcc74x_async_event_send_to_app(dev, &event);
+
+			/* The callback (e.g. test_single_read_callback) may write
+			 * receive-count fields that share a D-cache line with the
+			 * DMA destination buffer. Flush those CPU writes before DMA
+			 * fills more bytes, then invalidate stale cache entries. */
+			if (qc7xx_check_cache_addr(data->async_rx.buf)) {
+				sys_cache_data_flush_and_invd_range(data->async_rx.buf,
+								    data->async_rx.len);
+			}
 
 			key = irq_lock();
 
@@ -2468,7 +2478,8 @@ static const struct uart_driver_api uart_qcc74x_driver_api = {
 		.rx_fifo_threshold = UART_FIFO_RX_THRESHOLD_DEFAULT,                               \
 		.reset = RESET_DT_SPEC_INST_GET(n),                                                \
 		UART_QCC74X_DMA_INIT(n) UART_QCC74X_IRQ_HANDLER_FUNC(n)};                              \
-	PM_DEVICE_DT_INST_DEFINE(n, uart_qcc74x_pm_control);                                           \
+	IF_ENABLED(CONFIG_PM_DEVICE,                                                               \
+		(PM_DEVICE_DT_INST_DEFINE(n, uart_qcc74x_pm_control);))                            \
 	DEVICE_DT_INST_DEFINE(n, &uart_qcc74x_init, PM_DEVICE_DT_INST_GET(n), &uart##n##_data,        \
 			      &uart##n##_config, UART_QCC74X_INIT_LEVEL(n),                          \
 			      UART_QCC74X_INIT_PRIORITY(n), &uart_qcc74x_driver_api);                  \
