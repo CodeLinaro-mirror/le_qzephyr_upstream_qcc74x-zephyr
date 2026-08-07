@@ -12,6 +12,7 @@ config SOC_SERIES_QCC74X
 	select RISCV
 	select RISCV_PRIVILEGED
 	select RISCV_HAS_CLIC
+	select RISCV_SOC_CONTEXT_SAVE if !QCC74X_WIFI_PERF_MODE
 	select INCLUDE_RESET_VECTOR
 	select RISCV_SOC_HAS_GP_RELATIVE_ADDRESSING
 	select DYNAMIC_INTERRUPTS
@@ -39,6 +40,14 @@ config SOC_SERIES_QCC74X
 	select HAS_PM
 
 if SOC_SERIES_QCC74X
+
+config QCC74X_WIFI_PERF_MODE
+	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
+	default n
+	help
+	  Enable in WiFi-throughput builds only. Without this option,
+	  RISCV_SOC_CONTEXT_SAVE is selected, which adds two function calls
+	  (__soc_save_context / __soc_restore_context) to every trap entry/exit.
 
 config QCC74X_PM_DIAGNOSTICS
 	bool "Enable QCC74X PM diagnostics"

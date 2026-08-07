@@ -14,6 +14,7 @@ zephyr_sources(
   system_qcc74x.c
   hw_init.c
   fw_header.c
+  soc_irq.S
   soc.c
   soc_multi_heap.c
 )
