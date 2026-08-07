@@ -83,7 +83,7 @@ def find_workspace_root(start_dir, markers=("zephyr", "modules"), max_levels=10)
 class QconnFlashRunner(ZephyrBinaryRunner):
     """Qconn_Flash_Cmd runner."""
 
-    def __init__(self, cfg, qconn_flash_cmd, interface, port, baud_rate, reset):
+    def __init__(self, cfg, qconn_flash_cmd, interface, port, baud_rate, reset, chipname):
         """Initializes the QconnFlashRunner."""
         super().__init__(cfg)
         self.interface = interface
@@ -91,6 +91,7 @@ class QconnFlashRunner(ZephyrBinaryRunner):
         self.port = port
         self.baud_rate = baud_rate
         self.reset = reset
+        self.chipname = chipname
 
     @classmethod
     def name(cls):
@@ -111,6 +112,8 @@ class QconnFlashRunner(ZephyrBinaryRunner):
         # Optional
         parser.add_argument("--interface", default=DEFAULT_INTERFACE)
         parser.add_argument("--baud_rate", default=DEFAULT_BAUD_RATE)
+        parser.add_argument("--chipname", required=True,
+                            help='Chip name for QConn_Flash_Cmd.')
         parser.add_argument(
             "--qconn_flash_cmd",
             help="Path to QConn_Flash_Cmd executable (auto-detected if not specified)")
@@ -148,7 +151,8 @@ class QconnFlashRunner(ZephyrBinaryRunner):
 
         return cls(cfg, qconn_flash_cmd=qconn_flash_cmd,
                    interface=args.interface, port=args.port,
-                   baud_rate=args.baud_rate, reset=bool(args.reset))
+                   baud_rate=args.baud_rate, reset=bool(args.reset),
+                   chipname=args.chipname)
 
     def do_run(self, _command, **_kwargs):
         """Executes the flash command."""
@@ -177,8 +181,9 @@ class QconnFlashRunner(ZephyrBinaryRunner):
                          '--interface', self.interface,
                          '--port', self.port,
                          '--baudrate', self.baud_rate,
-                         '--config', tmp_cfg_path]
+                         '--config', tmp_cfg_path,
+                         '--chipname', self.chipname]
             if self.reset:
-                cmd_flash.append('--reset')
+                cmd_flash.append('--warm_reset')
             self.logger.info(f"Flash binary, cmd_flash: {cmd_flash}")
             self.check_call(cmd_flash)
