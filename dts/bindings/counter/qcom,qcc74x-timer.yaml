@@ -49,6 +49,13 @@ properties:
     default: 3
     description: When the value corresponding to preload_id is reached, reload the value of preload_val.
 
+  periph-idx:
+    type: int
+    enum:
+      - 0
+      - 1
+    description: Index of the peripheral to be used.
+
   comp0-val:
     type: int
     default: 0

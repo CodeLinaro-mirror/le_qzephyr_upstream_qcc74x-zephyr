@@ -10,6 +10,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/video.h>
+#include <zephyr/drivers/video-controls.h>
 #include <zephyr/drivers/clock_control.h>
 
 #include "qc7xx_cam.h"
@@ -168,7 +169,7 @@ static int video_qcc74x_init(const struct device *dev)
 	sys_write32(regval, config->reg_base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
 	/* Save default format */
-	ret = video_get_format(config->source_dev, VIDEO_EP_OUT, &data->video_format);
+	ret = video_get_format(config->source_dev, &data->video_format);
 	if (ret != 0) {
 		LOG_ERR("Cannot get video format.");
 		return ret;
@@ -219,70 +220,66 @@ static void video_qcc74x_isr(const struct device *dev)
 
 /* Video  API Implementation */
 
-static int video_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_format *fmt)
+static int video_qcc74x_set_fmt(const struct device *dev, struct video_format *fmt)
 {
 	const struct video_qcc74x_config *config = dev->config;
 	struct video_qcc74x_data *data = dev->data;
 
-	if (fmt == NULL || ep != VIDEO_EP_OUT) {
+	if (fmt == NULL) {
 		return -EINVAL;
 	}
 
 	data->video_format = *fmt;
 
-	return video_set_format(config->source_dev, ep, fmt);
+	return video_set_format(config->source_dev, fmt);
 }
 
-static int video_qcc74x_get_fmt(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_format *fmt)
+static int video_qcc74x_get_fmt(const struct device *dev, struct video_format *fmt)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (fmt == NULL || ep != VIDEO_EP_OUT) {
+	if (fmt == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_format(config->source_dev, ep, fmt);
+	return video_get_format(config->source_dev, fmt);
 }
 
-static int video_qcc74x_set_frmival(const struct device *dev, enum video_endpoint_id ep,
-				  struct video_frmival *frmival)
+static int video_qcc74x_set_frmival(const struct device *dev, struct video_frmival *frmival)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (frmival == NULL || ep != VIDEO_EP_OUT) {
+	if (frmival == NULL) {
 		return -EINVAL;
 	}
 
-	return video_set_frmival(config->source_dev, ep, frmival);
+	return video_set_frmival(config->source_dev, frmival);
 }
 
-static int video_qcc74x_get_frmival(const struct device *dev, enum video_endpoint_id ep,
-				  struct video_frmival *frmival)
+static int video_qcc74x_get_frmival(const struct device *dev, struct video_frmival *frmival)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (frmival == NULL || ep != VIDEO_EP_OUT) {
+	if (frmival == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_frmival(config->source_dev, ep, frmival);
+	return video_get_frmival(config->source_dev, frmival);
 }
 
-static int video_qcc74x_get_caps(const struct device *dev, enum video_endpoint_id ep,
-			       struct video_caps *caps)
+static int video_qcc74x_get_caps(const struct device *dev, struct video_caps *caps)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (caps == NULL || ep != VIDEO_EP_OUT) {
+	if (caps == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_caps(config->source_dev, ep, caps);
+	return video_get_caps(config->source_dev, caps);
 }
 
-static int video_qcc74x_set_stream(const struct device *dev, bool enable)
+static int video_qcc74x_set_stream(const struct device *dev, bool enable,
+				   enum video_buf_type type)
 {
 	const struct video_qcc74x_config *config = dev->config;
 	struct video_qcc74x_data *data = dev->data;
@@ -290,7 +287,7 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 	if (!enable) {
 		qc7xx_cam_stop(&data->cam_hal_device);
 
-		if (video_stream_stop(config->source_dev)) {
+		if (video_stream_stop(config->source_dev, type)) {
 			return -EIO;
 		}
 
@@ -310,7 +307,7 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 
 	video_qcc74x_start_capture(data);
 
-	if (video_stream_start(config->source_dev)) {
+	if (video_stream_start(config->source_dev, type)) {
 		return -EIO;
 	}
 
@@ -318,8 +315,7 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 	return 0;
 }
 
-static int video_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_buffer *buf)
+static int video_qcc74x_enqueue(const struct device *dev, struct video_buffer *buf)
 {
 	struct video_qcc74x_data *data = dev->data;
 	const uint32_t frame_size = data->video_format.pitch * data->video_format.height;
@@ -336,7 +332,7 @@ static int video_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id
 	return 0;
 }
 
-static int video_qcc74x_dequeue(const struct device *dev, enum video_endpoint_id ep,
+static int video_qcc74x_dequeue(const struct device *dev,
 			      struct video_buffer **buf, k_timeout_t timeout)
 {
 	struct video_qcc74x_data *data = dev->data;
@@ -350,7 +346,7 @@ static int video_qcc74x_dequeue(const struct device *dev, enum video_endpoint_id
 	return 0;
 }
 
-static int video_qcc74x_flush(const struct device *dev, enum video_endpoint_id ep, bool cancel)
+static int video_qcc74x_flush(const struct device *dev, bool cancel)
 {
 	struct video_qcc74x_data *data = dev->data;
 	struct video_buffer *vbuf = data->active_buffer;
@@ -379,22 +375,24 @@ static int video_qcc74x_flush(const struct device *dev, enum video_endpoint_id e
 	return 0;
 }
 
-static inline int video_qcc74x_set_ctrl(const struct device *dev, unsigned int cid, void *value)
+static inline int video_qcc74x_set_ctrl(const struct device *dev, uint32_t cid)
 {
 	const struct video_qcc74x_config *config = dev->config;
+	struct video_control ctrl = { .id = cid };
 
-	return video_set_ctrl(config->source_dev, cid, value);
+	return video_set_ctrl(config->source_dev, &ctrl);
 }
 
-static inline int video_qcc74x_get_ctrl(const struct device *dev, unsigned int cid, void *value)
+static inline int video_qcc74x_get_ctrl(const struct device *dev, uint32_t cid)
 {
 	const struct video_qcc74x_config *config = dev->config;
+	struct video_control ctrl = { .id = cid };
 
-	return video_get_ctrl(config->source_dev, cid, value);
+	return video_get_ctrl(config->source_dev, &ctrl);
 }
 
 #ifdef CONFIG_POLL
-static int video_qcc74x_set_signal(const struct device *dev, enum video_endpoint_id ep,
+static int video_qcc74x_set_signal(const struct device *dev,
 				 struct k_poll_signal *signal)
 {
 	struct video_qcc74x_data *data = dev->data;
@@ -419,7 +417,7 @@ static DEVICE_API(video, video_qcc74x_driver_api) = {
 	.dequeue = video_qcc74x_dequeue,
 	.flush = video_qcc74x_flush,
 	.set_ctrl = video_qcc74x_set_ctrl,
-	.get_ctrl = video_qcc74x_get_ctrl,
+	.get_volatile_ctrl = video_qcc74x_get_ctrl,
 #ifdef CONFIG_POLL
 	.set_signal = video_qcc74x_set_signal,
 #endif

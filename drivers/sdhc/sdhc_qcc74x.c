@@ -415,7 +415,7 @@ static int sdhc_qcc74x_transfer_start(const struct device *dev, struct sdhc_comm
 		sdhc_qcc74x_send_active_clk(dev);
 	}
 
-	sdhc_qcc74x_set_timeout_ms(dev, cmd->timeout_ms);
+	sdhc_qcc74x_set_timeout_ms(dev, (data && data->timeout_ms) ? data->timeout_ms : cmd->timeout_ms);
 
 	k_sem_reset(&dev_data->transfer_sem);
 	/* clr comp sta */
@@ -486,7 +486,7 @@ static int sdhc_qcc74x_wait_done(const struct device *dev, struct sdhc_command *
 	/* Wait DATA/busy done */
 	qc7xx_sdh_sta_int_en(&dev_data->sdh_dev, SDH_NORMAL_STA_TRAN_COMP | SDH_ERROR_ALL_MASK,
 			     true);
-	ret = k_sem_take(&dev_data->transfer_sem, K_MSEC(cmd->timeout_ms * 2));
+	ret = k_sem_take(&dev_data->transfer_sem, K_MSEC(data ? data->timeout_ms : cmd->timeout_ms * 2));
 	if (ret < 0) {
 		LOG_ERR("CMD%d data wait timeout", cmd_cfg->index);
 		return -ETIMEDOUT;
@@ -755,8 +755,9 @@ static DEVICE_API(sdhc, sdhc_qcc74x_api) = {
 		.instance_id = idx,                                                                \
 	};                                                                                         \
                                                                                                    \
-	static __ALIGNED(CONFIG_SDHC_BUFFER_ALIGNMENT) __nocache struct qc7xx_sdh_adma2_hw_desc_s  \
-		sdh_adma2_hw_desc_##idx[QCC74X_SDHC_ADMA2_DESC_NUM];                                 \
+	static __ALIGNED(CONFIG_SDHC_BUFFER_ALIGNMENT)                                                \
+		__attribute__((section(".nocache_noinit_ram")))                                         \
+		struct qc7xx_sdh_adma2_hw_desc_s sdh_adma2_hw_desc_##idx[QCC74X_SDHC_ADMA2_DESC_NUM]; \
                                                                                                    \
 	static struct sdhc_qcc74x_data sdhc_data_##idx = {                                           \
 		.sdh_dev = {NULL, 0, 0xFF, 0, 0, 0, NULL},                                         \

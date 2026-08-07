@@ -6,6 +6,7 @@
 
 #define DT_DRV_COMPAT qcom_qcc74x_uart
 
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/arch/common/sys_io.h>
