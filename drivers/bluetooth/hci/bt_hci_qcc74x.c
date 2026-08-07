@@ -214,7 +214,7 @@ static bool event_packet_is_discardable(struct qcc74x_bt_hci_evt_hdr_c *hdr, uin
 {
 	switch (hdr->evt) {
 	case BT_HCI_EVT_LE_META_EVENT: {
-		struct bt_hci_evt_le_meta_event *me = (void *)hdr->val;
+		struct bt_hci_evt_le_meta_event *me = (void *)&param[0];
 		switch (me->subevent) {
 		case BT_HCI_EVT_LE_ADVERTISING_REPORT:
 			return true;
