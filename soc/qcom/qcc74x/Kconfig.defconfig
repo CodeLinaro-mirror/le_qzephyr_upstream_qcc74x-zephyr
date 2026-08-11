@@ -46,6 +46,20 @@ config BOARD_FLASH_LOW_SPEED
 	help
 	  Enable Flash low speed for this SoC.
 
+config FLASH_XIP_LENGTH
+	hex "Flash xip length"
+	default 0x400000
+
+config PSRAM_LENGTH
+	hex "PSRAM length"
+	default 0
+
+config PSRAM_COPY_CODE
+	bool "Enable psram copy code for this SoC"
+	default n
+	help
+	  Enable psram copy code for this SoC.
+
 config PSRAM
 	bool "Enable psram for this SoC"
 	default y if $(dt_compat_enabled,$(DT_PSRAM_COMPAT))
