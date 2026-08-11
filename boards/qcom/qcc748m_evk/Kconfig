@@ -5,16 +5,17 @@ config HEAP_MEM_POOL_ADD_SIZE_BOARD
 	int
 	default 4096
 
-config BOARD_PARTITION_CFG_FILE
-	string "Partition configuration file"
-	default "partition_cfg_flash_8M_psram_4M.toml" if PSRAM
-	default "partition_cfg_4M.toml"
-	help
-	  Partition table file name relative to the board directory,
-	  or an application-provided path.
-	  Use partition_cfg_flash_8M_psram_4M.toml for 8M Flash + 4M PSRAM
-	  execution mode (FW.len=0xA8000000, boot2 copies FW to PSRAM).
-	  Use the qcom-748m-evk-flash-8M-psram-8M snippet for 8M PSRAM boards.
+# For now disable BOARD_PARTITION_CFG_FILE which leads to shell hang issue.
+#config BOARD_PARTITION_CFG_FILE
+#	string "Partition configuration file"
+#	default "partition_cfg_flash_8M_psram_4M.toml" if PSRAM
+#	default "partition_cfg_4M.toml"
+#	help
+#	  Partition table file name relative to the board directory,
+#	  or an application-provided path.
+#	  Use partition_cfg_flash_8M_psram_4M.toml for 8M Flash + 4M PSRAM
+#	  execution mode (FW.len=0xA8000000, boot2 copies FW to PSRAM).
+#	  Use the qcom-748m-evk-flash-8M-psram-8M snippet for 8M PSRAM boards.
 
 config PSRAM_LENGTH
 	hex "PSRAM total size in bytes"
