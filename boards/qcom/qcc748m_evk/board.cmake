@@ -33,5 +33,4 @@ board_runner_args(openocd --gdb-init "mem 0xA8000000 0xA8800000 rw")
 board_runner_args(openocd --gdb-init "mem 0xA0000000 0xA0400000 ro")
 include(${ZEPHYR_BASE}/boards/common/openocd.board.cmake)
 
-board_runner_args(qconn_flash "--chipname=qcc748")
 include(${CMAKE_CURRENT_LIST_DIR}/../common/qcc7xx.board.cmake)

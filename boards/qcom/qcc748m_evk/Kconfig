@@ -4,32 +4,3 @@
 config HEAP_MEM_POOL_ADD_SIZE_BOARD
 	int
 	default 4096
-
-# For now disable BOARD_PARTITION_CFG_FILE which leads to shell hang issue.
-#config BOARD_PARTITION_CFG_FILE
-#	string "Partition configuration file"
-#	default "partition_cfg_flash_8M_psram_4M.toml" if PSRAM
-#	default "partition_cfg_4M.toml"
-#	help
-#	  Partition table file name relative to the board directory,
-#	  or an application-provided path.
-#	  Use partition_cfg_flash_8M_psram_4M.toml for 8M Flash + 4M PSRAM
-#	  execution mode (FW.len=0xA8000000, boot2 copies FW to PSRAM).
-#	  Use the qcom-748m-evk-flash-8M-psram-8M snippet for 8M PSRAM boards.
-
-config PSRAM_LENGTH
-	hex "PSRAM total size in bytes"
-	depends on PSRAM
-	default 0x400000
-	help
-	  Total PSRAM size in bytes (4 MB = 0x400000, 8 MB = 0x800000).
-	  Must match the physical PSRAM on the board and the partition table.
-	  Override via the qcom-748m-evk-flash-8M-psram-8M snippet for 8M boards.
-
-config PSRAM_REGION_FLASH_SHADOW_SIZE
-	hex "PSRAM flash shadow region size"
-	default 0x200000
-	help
-	  Size of the PSRAM region used for shadowing code and data from
-	  external flash into PSRAM. This option must be consistent with the
-	  linker script memory layout.

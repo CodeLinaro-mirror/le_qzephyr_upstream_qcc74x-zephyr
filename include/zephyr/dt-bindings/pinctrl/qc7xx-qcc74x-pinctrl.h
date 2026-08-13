@@ -158,6 +158,8 @@
 /* V44-format macros for CLKOUT */
 #define CLKOUT_GPIO0                                                                            \
 	QC7XX_PINMUX(0, GPIO_FUN_CLKOUT | GPIO_ALTERNATE | GPIO_DRV_1)
+#define CLKOUT_GPIO23                                                                           \
+	QC7XX_PINMUX(23, GPIO_FUN_CLKOUT | GPIO_ALTERNATE | GPIO_DRV_1)
 
 /* V44-format macros for PWM0 additional channels */
 #define PWM0_CH1P_GPIO1                                                                         \
@@ -273,6 +275,39 @@
 	QC7XX_PINMUX(14, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
 #define DBI_C_DCn_GPIO15                                                                        \
 	QC7XX_PINMUX(15, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_DRV_1)
+/* DBI-C with drive-strength=2, pull-up, SMT (stronger drive for display) */
+#define DBI_C_SCL_GPIO12_DS2                                                                    \
+	QC7XX_PINMUX(12, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2)
+#define DBI_C_CSn_GPIO13_DS2                                                                    \
+	QC7XX_PINMUX(13, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2)
+#define DBI_C_SDA0_GPIO14_DS2                                                                   \
+	QC7XX_PINMUX(14, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2)
+#define DBI_C_DCn_GPIO15_DS2                                                                    \
+	QC7XX_PINMUX(15, GPIO_FUN_DBI_C | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2)
+
+/* V44-format macros for CAM0 (DVP camera interface) */
+#define CAM0_DAT0_GPIO24                                                                        \
+	QC7XX_PINMUX(24, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT1_GPIO25                                                                        \
+	QC7XX_PINMUX(25, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT2_GPIO26                                                                        \
+	QC7XX_PINMUX(26, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT3_GPIO27                                                                        \
+	QC7XX_PINMUX(27, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_HSYNC_GPIO28                                                                       \
+	QC7XX_PINMUX(28, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_VSYNC_GPIO29                                                                       \
+	QC7XX_PINMUX(29, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_CLK_GPIO30                                                                         \
+	QC7XX_PINMUX(30, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT4_GPIO31                                                                        \
+	QC7XX_PINMUX(31, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT5_GPIO32                                                                        \
+	QC7XX_PINMUX(32, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT6_GPIO33                                                                        \
+	QC7XX_PINMUX(33, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define CAM0_DAT7_GPIO34                                                                        \
+	QC7XX_PINMUX(34, GPIO_FUN_CAM | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
 
 /* V44-format macros for analog (ADC/DAC/AUADC) - no digital buffer, no pull */
 #define ADC_CH8_GPIO1                                                                           \

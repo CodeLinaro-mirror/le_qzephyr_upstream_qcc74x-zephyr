@@ -444,11 +444,6 @@ SECTIONS
     __kernel_ram_end = .;
     __kernel_ram_size = __kernel_ram_end - __kernel_ram_start;
 
-/* Located in generated directory. This file is populated by the
- * zephyr_linker_sources() Cmake function.
- */
-#include <snippets-sections.ld>
-
 #define LAST_RAM_ALIGN MPU_MIN_SIZE_ALIGN
 #include <zephyr/linker/ram-end.ld>
 

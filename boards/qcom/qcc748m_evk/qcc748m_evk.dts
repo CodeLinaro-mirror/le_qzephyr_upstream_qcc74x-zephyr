@@ -181,3 +181,17 @@
 &bt_hci {
 	status = "okay";
 };
+
+/*
+ * Camera shield label aliases.
+ * Shields such as weact_ov2640_cam_module reference &zephyr_camera_i2c and
+ * &zephyr_camera_dvp; these aliases map them to the board's i2c0 and cam nodes.
+ */
+zephyr_camera_i2c: &i2c0 {};
+zephyr_camera_dvp: &cam {};
+
+/*
+ * USB device controller alias.
+ * Samples such as cdc_acm/app.overlay reference &zephyr_udc0.
+ */
+zephyr_udc0: &usb {};

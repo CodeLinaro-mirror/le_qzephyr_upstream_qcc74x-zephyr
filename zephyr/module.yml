@@ -8,6 +8,5 @@ build:
     board_root: .
     dts_root: .
     soc_root: .
-    snippet_root: .
 runners:
   - file: scripts/flash/qconn_flash_runner.py

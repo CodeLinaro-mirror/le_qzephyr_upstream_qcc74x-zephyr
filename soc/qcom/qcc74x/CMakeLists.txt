@@ -94,17 +94,6 @@ if(CONFIG_BUILD_OUTPUT_BIN)
     --brdcfgdir=${QC7XX_SDK_PATH}/bsp/board/qcc74xdk/qcc74x
     --imgfile=${CMAKE_BINARY_DIR}/zephyr/${CONFIG_KERNEL_BIN_NAME}.bin
   )
-  # For now disable BOARD_PARTITION_CFG_FILE which leads to shell hang issue.
-  #if(DEFINED CONFIG_BOARD_PARTITION_CFG_FILE AND NOT "${CONFIG_BOARD_PARTITION_CFG_FILE}" STREQUAL "")
-  #  set(_pt_file "${BOARD_DIR}/${CONFIG_BOARD_PARTITION_CFG_FILE}")
-  #  if(NOT EXISTS "${_pt_file}")
-  #    set(_pt_file "${QC7XX_SDK_PATH}/bsp/board/qcc74xdk/qcc74x/${CONFIG_BOARD_PARTITION_CFG_FILE}")
-  #  endif()
-  #  if(EXISTS "${_pt_file}")
-  #    list(APPEND QCONN_SECURE_CONFIG --ptfile=${_pt_file})
-  #    message("Qualcomm Tool Partition: ${_pt_file}")
-  #  endif()
-  #endif()
 
   # QConn_Secure is a host binary shipped under tools/qc7xx_tools/, which is not
   # committed to the HAL repo (distributed separately). Only append the secure
