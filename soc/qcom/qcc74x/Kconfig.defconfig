@@ -46,6 +46,29 @@ config BOARD_FLASH_LOW_SPEED
 	help
 	  Enable Flash low speed for this SoC.
 
+config FLASH_XIP_LENGTH
+	hex "Flash xip length"
+	default 0x400000
+	help
+	  Length of the flash XIP region. Referenced by soc/qcom/qcc74x/common.ld
+	  as the length of the rom memory region.
+
+config PSRAM_LENGTH
+	hex "PSRAM length"
+	default 0
+	help
+	  Total PSRAM size in bytes (0 = disabled, 4 MB = 0x400000,
+	  8 MB = 0x800000). Referenced by soc/qcom/qcc74x/common.ld as the
+	  length of the ram_psram memory region when CONFIG_PSRAM is enabled.
+
+config PSRAM_COPY_CODE
+	bool "Enable psram copy code for this SoC"
+	default n
+	help
+	  Enable the psram copy-code linker path in soc/qcom/qcc74x/common.ld,
+	  which relocates selected code/data sections from flash to PSRAM at
+	  boot for faster execution.
+
 config PSRAM
 	bool "Enable psram for this SoC"
 	default y if $(dt_compat_enabled,$(DT_PSRAM_COMPAT))
