@@ -930,7 +930,6 @@ static int qc7xx_wifi_disconnect(const struct device *dev)
 static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_params *params)
 {
 	struct qc7xx_wifi_runtime *data = dev->data;
-	struct net_if *iface = qc7xx_wifi_runtime_to_iface(data);
 	wifi_mgmr_sta_connect_params_t wifi_config;
 	const char *akm;
 	char bssid_str[MGMR_BSSID_LEN] = { 0 };
@@ -948,10 +947,6 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	}
 
 	if (data->state == QC7XX_STA_CONNECTING || data->state == QC7XX_STA_CONNECTED) {
-		if (iface != NULL) {
-			wifi_mgmt_raise_connect_result_event(iface, -1);
-		}
-
 		return -EALREADY;
 	}
 
