@@ -655,6 +655,9 @@ SECTIONS
     __rodata_region_start = .;
 #include <zephyr/linker/common-rom.ld>
 #include <snippets-rom-sections.ld>
+/* SECTIONS-type linker fragments (e.g. ITERABLE_SECTION_ROM for USB DFU,
+ * BT, etc.) land in snippets-sections.ld, not snippets-rom-sections.ld. */
+#include <snippets-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 #include <zephyr/linker/cplusplus-rom.ld>
 
