@@ -23,6 +23,16 @@ if(CONFIG_PM)
   zephyr_sources(power.c)
 endif()
 
+zephyr_sources_ifdef(CONFIG_POWEROFF poweroff.c)
+zephyr_sources_ifdef(CONFIG_QCC74X_HBN_SHELL hbn_shell.c)
+
+if(CONFIG_POWEROFF OR CONFIG_QCC74X_PM_PDS15)
+  zephyr_sources(
+    ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qc7xx_hbn_system.c
+    ${QC7XX_SDK_PATH}/drivers/lhal/src/qc7xx_acomp.c
+  )
+endif()
+
 zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_POLICY
   pm_policy_qcc74x.c
 )
@@ -35,7 +45,6 @@ zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15
   pm_pds15_glue.c
   pm_pds15.c
   ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qcc74x_lp.c
-  ${QC7XX_SDK_PATH}/drivers/lhal/src/qc7xx_acomp.c
   ${QC7XX_SDK_PATH}/drivers/soc/qcc74x/std/startup/interrupt.c
 )
 

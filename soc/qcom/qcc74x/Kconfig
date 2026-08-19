@@ -38,8 +38,22 @@ config SOC_SERIES_QCC74X
 	select MULTI_HEAP
 	select SYS_HEAP_RUNTIME_STATS
 	select HAS_PM
+	select HAS_POWEROFF
+	select SOC_EARLY_INIT_HOOK if POWEROFF
 
 if SOC_SERIES_QCC74X
+
+config QCC74X_HBN_SHELL
+	bool "Enable QCC74X HBN shell command"
+	depends on POWEROFF && SHELL
+	default n
+	help
+	  Enable the QCC74X-specific HBN shell command. The command uses the
+	  Zephyr system-off API and is available to any shell-enabled
+	  application built for QCC74X; it is not tied to a particular sample.
+
+	  The command provides HBN wake information query and clear operations.
+	  QCC74X Zephyr HBN always uses HBN0 and supports RTC or ACOMP edge wake.
 
 config QCC74X_WIFI_PERF_MODE
 	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
