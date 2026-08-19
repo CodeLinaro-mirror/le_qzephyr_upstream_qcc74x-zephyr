@@ -360,6 +360,7 @@ static int gpio_qcc74x_pin_interrupt_configure(const struct device *dev, const g
 		tmp_val = sys_read32(gpio_pin_offset_addr + (pin << 2));
 		tmp_val |= GLB_REG_GPIO_0_INT_MASK_MSK;
 		sys_write32(tmp_val, gpio_pin_offset_addr + (pin << 2));
+		gpio_qcc74x_pin_interrupt_clear(dev, BIT(pin));
 		gpio_qcc74x_int_src_untrack(data, pin);
 		LOG_DBG("Pin interrupt disabled: pin=%u", pin);
 	}
