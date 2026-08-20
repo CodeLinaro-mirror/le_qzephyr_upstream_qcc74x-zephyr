@@ -13,7 +13,7 @@
 #define QC7XX_IS_SEC_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_PKA_CLK_MCU_BCLK) || ((type) == QC7XX_PKA_CLK_MCU_MUXPLL_160M))
 #endif
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 #define QC7XX_IS_SEC_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_PKA_CLK_MCU_BCLK) || ((type) == QC7XX_PKA_CLK_WIFIPLL_160M))
 #endif

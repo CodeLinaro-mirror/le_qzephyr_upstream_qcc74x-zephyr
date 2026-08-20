@@ -1,0 +1,36 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: qcr373_evk
+name: QCR373
+vendor: qualcomm
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+supported:
+  - adc
+  - bluetooth
+  - gpio
+  - i2c
+  - watchdog
+  - uart
+  - dma
+  - spi
+  - counter
+  - entropy
+identifiers:
+  - qcr373_devkitp/qcr373
+  - qcr373_devkitp/qcr373/ap
+  - qcr373_devkitp/qcr373/np
+testing:
+  ignore_tags:
+    - wifi
+    - tracing

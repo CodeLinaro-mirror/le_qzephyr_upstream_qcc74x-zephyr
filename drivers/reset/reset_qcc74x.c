@@ -17,6 +17,9 @@
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include <qcc75x_glb.h>
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <qcr373_glb.h>
+#endif
 
 /* Register for logging */
 LOG_MODULE_REGISTER(reset_qcc74x, CONFIG_RESET_LOG_LEVEL);

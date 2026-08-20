@@ -8,9 +8,12 @@
 #ifdef CONFIG_SOC_SERIES_QCC74X
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc74x-pinctrl.h>
 #include "qcc74x_glb.h"
-#elif CONFIG_SOC_SERIES_QCC75X
+#elif defined(CONFIG_SOC_SERIES_QCC75X)
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc75x-pinctrl.h>
 #include "qcc75x_glb.h"
+#elif defined(CONFIG_SOC_SERIES_QCR373)
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcr373-pinctrl.h>
+#include "qcr373_glb.h"
 #endif
 #include <qc7xx_gpio.h>
 

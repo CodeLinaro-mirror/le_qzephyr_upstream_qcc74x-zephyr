@@ -1,0 +1,30 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# All rights reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+CONFIG_MAIN_STACK_SIZE=4096
+CONFIG_CONSOLE=y
+CONFIG_SERIAL=y
+CONFIG_UART_CONSOLE=y
+CONFIG_GPIO=y
+
+CONFIG_FLASH_SIZE=8
+
+# Start bluetooth config
+CONFIG_BT_LL_SW_SPLIT=n
+CONFIG_BT_HCI_ACL_FLOW_CONTROL=n
+# bluetooth debug log enable
+#CONFIG_BT_HCI_DRIVER_LOG_LEVEL_DBG=y
+# End bluetooth config
+
+# Enable soc late initialization hook
+CONFIG_SOC_LATE_INIT_HOOK=y
+CONFIG_LOG_MODE_IMMEDIATE=y
+CONFIG_LOG=y

@@ -15,6 +15,10 @@
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <qcc75x_clock.h>
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <qcr373_clock.h>
+#endif
 
 #ifdef CONFIG_SOC_SERIES_QCC74X
 
@@ -116,7 +120,7 @@ uint32_t qcc7xx_clk_common_Clock_Get_Audio_PLL_Output()
 
 	return qcc7xx_clk_common_Clock_Get_AUPLL_Output(CLOCK_AUPLL_DIV1) / tmpVal;
 #endif
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 	return 0;
 #endif
 }

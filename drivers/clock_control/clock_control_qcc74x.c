@@ -25,10 +25,17 @@
 #include <qcc74x_glb.h>
 #include <qcc74x_hbn.h>
 #endif
+
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <qcc75x_glb.h>
 #include <qcc75x_hbn.h>
+#endif
+
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <qcr373_glb.h>
+#include <qcr373_hbn.h>
 #endif
 
 #define LOG_LEVEL CONFIG_CLOCK_CONTROL_LOG_LEVEL
@@ -48,7 +55,7 @@ LOG_MODULE_REGISTER(clock_control_qcc74x, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 #define QC7XX_IS_SDH_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_SDH_CLK_WIFIPLL_96M) || ((type) == QC7XX_SDH_CLK_TOP_AUPLL_DIV5))
 #endif
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 #define QC7XX_IS_SDH_CLK_SOURCE(type) ((type) == QC7XX_SDH_CLK_WIFIPLL_96M)
 #endif
 
@@ -146,7 +153,7 @@ static int clock_control_qcc74x_get_rate(const struct device *dev, clock_control
 	case QC7XX_PERIPHERAL_UART1:
 		type = QC7XX_DEVICE_TYPE_UART;
 		break;
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 	case QC7XX_PERIPHERAL_UART2:
 		type = QC7XX_DEVICE_TYPE_UART;
 		break;
@@ -324,8 +331,13 @@ static int clock_control_qcc74x_configure(const struct device *dev, clock_contro
 		struct qcc74x_clk_settings *spi_settings = (struct qcc74x_clk_settings *)data;
 		if (QC7XX_IS_SPI_CLK_SOURCE(spi_settings->clk_src) &&
 		    spi_settings->clk_div <= QC7XX_SPI_MAX_CLK_DIV) {
+#if !defined(QCR373)
 			GLB_Set_SPI_CLK(spi_settings->enable, spi_settings->clk_src,
 					spi_settings->clk_div);
+#else
+			GLB_Set_SPI0_2_CLK(spi_settings->enable, spi_settings->clk_src,
+					   spi_settings->clk_div);
+#endif
 		} else {
 			LOG_ERR("Invalid clock settings for SPI "
 				" clk_src: %u or clk_div:%u",
@@ -391,7 +403,9 @@ static int clock_control_qcc74x_configure(const struct device *dev, clock_contro
 		}
 		break;
 	case QC7XX_PERIPHERAL_USB20:
+#if !defined(QCR373)
 		GLB_Set_USB_CLK_From_WIFIPLL(1);
+#endif
 		break;
 	default:
 		return -ENOTSUP;
@@ -656,8 +670,15 @@ static void clock_control_qcc74x_disable_all_peripheral_clocks()
 	GLB_Set_ADC_CLK(DISABLE, QC7XX_ADC_CLK_XCLK, 0);
 	GLB_Set_I2C_CLK(DISABLE, QC7XX_I2C_CLK_XCLK, 0);
 	GLB_Set_I2C_CLK(DISABLE, QC7XX_I2C_CLK_BCLK, 0);
+#if !defined(QCR373)
 	GLB_Set_SPI_CLK(DISABLE, QC7XX_SPI_CLK_MCU_MUXPLL_160M, 0);
 	GLB_Set_SPI_CLK(DISABLE, QC7XX_SPI_SPI_CLK_XCLK, 0);
+#else
+	GLB_Set_SPI0_2_CLK(DISABLE, QC7XX_SPI_CLK_MCU_MUXPLL_160M, 0);
+	GLB_Set_SPI0_2_CLK(DISABLE, QC7XX_SPI_SPI_CLK_XCLK, 0);
+	GLB_Set_SPI3_CLK(DISABLE, QC7XX_SPI_CLK_MCU_MUXPLL_160M, 0);
+	GLB_Set_SPI3_CLK(DISABLE, QC7XX_SPI_SPI_CLK_XCLK, 0);
+#endif
 	qc7xx_peripheral_clock_control((uintptr_t)QC7XX_PERIPHERAL_SDH0, 0);
 	GLB_Set_SDH_CLK(DISABLE, QC7XX_SDH_CLK_WIFIPLL_96M, 0);
 #ifdef CONFIG_SOC_SERIES_QCC74X
@@ -688,7 +709,9 @@ static void clock_control_qcc74x_disable_all_peripheral_clocks()
 	qc7xx_peripheral_clock_control((uintptr_t)QC7XX_PERIPHERAL_USB20, 0);
 	qc7xx_peripheral_clock_control((uintptr_t)QC7XX_PERIPHERAL_SDU0, 0);
 	GLB_PER_Clock_Gate(GLB_AHB_CLOCK_MJPEG);
+#if !defined(QCR373)
 	GLB_Set_USB_CLK_From_WIFIPLL(0);
+#endif
 }
 
 /**

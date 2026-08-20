@@ -22,7 +22,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(mipi_dbi_qcc74x, CONFIG_MIPI_DBI_LOG_LEVEL);
 
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 #define QCC74X_DBI_B_CLK_FREQ_MAX (MHZ(40))
 #else
 #define QCC74X_DBI_B_CLK_FREQ_MAX (MHZ(27))

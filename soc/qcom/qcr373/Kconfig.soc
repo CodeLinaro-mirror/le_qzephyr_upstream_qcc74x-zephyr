@@ -1,0 +1,38 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_QCR373
+	bool
+	select SOC_FAMILY_QCOM_QCC7XX
+
+config SOC_QCR373
+	bool
+	select SOC_SERIES_QCR373
+
+config SOC_QCR373_AP
+	bool
+	help
+	  Build an image for the QCR373 application processor. In a multi-image
+	  build, the AP image is responsible for loading and starting the NP image.
+
+config SOC_QCR373_NP
+	bool
+	help
+	  Build the QCR373 network processor child image. The NP image is not a
+	  standalone boot image and must be loaded and started by the AP image.
+
+config GEN_SW_ISR_TABLE
+	bool
+
+config SOC
+	default "qcr373" if SOC_QCR373
+
+config SOC_SERIES
+	default "qcr373" if SOC_SERIES_QCR373

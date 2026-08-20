@@ -8,8 +8,10 @@
 #include <zephyr/dt-bindings/pinctrl/qc7xx-pinctrl-common.h>
 #ifdef CONFIG_SOC_SERIES_QCC74X
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc74x-pinctrl.h>
-#elif CONFIG_SOC_SERIES_QCC75X
+#elif defined(CONFIG_SOC_SERIES_QCC75X)
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc75x-pinctrl.h>
+#elif defined(CONFIG_SOC_SERIES_QCR373)
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcr373-pinctrl.h>
 #endif
 
 #include <hardware/glb_reg.h>

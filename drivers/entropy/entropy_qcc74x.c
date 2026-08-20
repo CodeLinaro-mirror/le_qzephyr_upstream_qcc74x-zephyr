@@ -14,6 +14,9 @@
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include "qcc75x_glb.h"
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include "qcr373_glb.h"
+#endif
 #include <zephyr/drivers/clock_control/qcc7xx_clk_sec_ll.h>
 #include <qc7xx_sec_trng.h>
 
@@ -37,7 +40,7 @@ static int entropy_qcc74x_get_entropy(const struct device *dev, uint8_t *buf, ui
 	uint32_t to_copy = 0U;
 
 	/* Enable TRNG access */
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 	if (GLB_CORE_ID_AP == GLB_Get_Core_Type()) {
 		qc7xx_group0_request_trng_access(NULL);
 	} else {
@@ -61,7 +64,7 @@ static int entropy_qcc74x_get_entropy(const struct device *dev, uint8_t *buf, ui
 	}
 
 	/* Release TRNG access */
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 	if (GLB_CORE_ID_AP == GLB_Get_Core_Type()) {
 		qc7xx_group0_release_trng_access(NULL);
 	} else {
