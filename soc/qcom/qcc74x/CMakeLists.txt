@@ -89,11 +89,24 @@ if(CONFIG_BUILD_OUTPUT_BIN)
   endif()
 
   set(QCONN_SECURE ${QC7XX_SDK_PATH}/tools/qc7xx_tools/QConn_Secure/QConn_Secure${TOOL_SUFFIX})
-  # Fallback: HAL module CMakeLists copies tools from blobs, but it runs after
-  # this SoC CMakeLists. On a fresh workspace the tools/ copy may not exist yet
-  # at configure time, so check the blob path directly.
+  # tools/qc7xx_tools/ is populated by the HAL module, and modules are processed
+  # after soc/, so on a virgin tree the tool is missing here and the partition.bin
+  # post-build step below would be silently skipped. Copy it ourselves instead of
+  # only probing, to the same path the HAL uses (its later copy becomes a no-op).
+  # Copying is required because the drops ship the tool non-executable (0640).
   if(NOT EXISTS ${QCONN_SECURE})
-    set(QCONN_SECURE ${QC7XX_SDK_PATH}/zephyr/blobs/qcc74x/tool/QConn_Secure${TOOL_SUFFIX})
+    foreach(_qconn_src ${QC7XX_SDK_PATH}/zephyr/blobs/qcc74x/tool
+                       ${QC7XX_SDK_PATH}/../../../../prop/qcc74x-bin/tool)
+      if(EXISTS ${_qconn_src}/QConn_Secure${TOOL_SUFFIX})
+        file(COPY ${_qconn_src}/QConn_Secure${TOOL_SUFFIX}
+             DESTINATION ${QC7XX_SDK_PATH}/tools/qc7xx_tools/QConn_Secure
+             FILE_PERMISSIONS
+               OWNER_READ OWNER_WRITE OWNER_EXECUTE
+               GROUP_READ GROUP_EXECUTE
+               WORLD_READ WORLD_EXECUTE)
+        break()
+      endif()
+    endforeach()
   endif()
 
   # HAL v2.1.3 bsp uses a single qcc74xdk/qcc74x board config dir (with
