@@ -1,18 +1,7 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD-3-Clause
 
 #!/usr/bin/env python3
-
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-# All rights reserved.
-# Confidential and Proprietary - Qualcomm Technologies, Inc.
-#
-# Contains code under the following license:
-#
-# Not a contribution.
-#
-# Copyright (c) Zephyr Project members and individual contributors.
-# SPDX-License-Identifier: Apache-2.0.
 
 """
 QCC74x script for west runner for flashing with QConn_Flash_Cmd.

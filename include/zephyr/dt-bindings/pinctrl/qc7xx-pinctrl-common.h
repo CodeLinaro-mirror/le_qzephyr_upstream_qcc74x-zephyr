@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_QC7XX_PINCTRL_COMMON_H_

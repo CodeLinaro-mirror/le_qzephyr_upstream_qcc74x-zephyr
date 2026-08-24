@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD-3-Clause
 
 # Windows: replace gdb-py.exe with gdb.exe to fix Ctrl+C after 'continue'
 if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_GDB)
