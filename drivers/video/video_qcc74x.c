@@ -10,10 +10,19 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/video.h>
+#include <zephyr/drivers/video-controls.h>
 #include <zephyr/drivers/clock_control.h>
 
 #include "qc7xx_cam.h"
 #include "hardware/cam_reg.h"
+#include "hardware/cam_front_reg.h"
+#include <zephyr/cache.h>
+
+/* CAM_FRONT (analog front-end) base address for QCC74X */
+#define CAM_FRONT_BASE_ADDR 0x20050000UL
+/* GPIO config register address: GLB_BASE + 0x8C4 + pin*4 */
+#define GLB_GPIO_CFG(pin) (0x200008C4U + (pin) * 4U)
+#include "qcc74x_glb.h"
 #include <zephyr/drivers/clock_control/qcc7xx_clk_common_ll.h>
 
 #define LOG_LEVEL CONFIG_VIDEO_LOG_LEVEL
@@ -60,6 +69,8 @@ struct video_qcc74x_data {
 	struct k_fifo fifo_out;
 	/** Frame completion signal */
 	struct k_poll_signal *signal;
+	/** Diagnostic work item: polls hardware state if no ISR fires */
+	struct k_work_delayable diag_work;
 };
 
 /**
@@ -110,6 +121,25 @@ static void video_qcc74x_fill_hal_cam_config(struct qc7xx_cam_config_s *config,
 }
 
 /**
+ * @brief Diagnostic work handler: fired 3 s after stream_start if no ISR has fired.
+ * Reads DVP2AXI and CAM_FRONT hardware registers to help identify why capture
+ * is not producing interrupts.
+ */
+static void video_qcc74x_diag_work_handler(struct k_work *work)
+{
+	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+	struct video_qcc74x_data *data =
+		CONTAINER_OF(dwork, struct video_qcc74x_data, diag_work);
+	uint32_t reg_base = data->cam_hal_device.reg_base;
+	uint32_t status   = sys_read32(reg_base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
+	uint32_t configue = sys_read32(reg_base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	uint32_t front    = sys_read32(CAM_FRONT_BASE_ADDR + CAM_FRONT_CONFIG_OFFSET);
+
+	LOG_ERR("DIAG(no ISR after 3s): STATUS=0x%08x FRAME_VALID_CNT=%u CONFIGUE=0x%08x FRONT=0x%08x",
+		status, (status >> CAM_FRAME_VALID_CNT_SHIFT) & 0x1f, configue, front);
+}
+
+/**
  * @brief Helper function to trigger capturing video data. Called, when the new video buffer is
  * used.
  *
@@ -118,10 +148,20 @@ static void video_qcc74x_fill_hal_cam_config(struct qc7xx_cam_config_s *config,
 static void video_qcc74x_start_capture(struct video_qcc74x_data *data)
 {
 	struct qc7xx_cam_config_s cam_hal_config;
+	uint32_t reg_base = data->cam_hal_device.reg_base;
 
 	qc7xx_cam_stop(&data->cam_hal_device);
 	video_qcc74x_fill_hal_cam_config(&cam_hal_config, &data->video_format, data->active_buffer);
+
 	qc7xx_cam_init(&data->cam_hal_device, &cam_hal_config);
+
+	/* Fix DVP signal polarity for OV2640 (COM10=0x00):
+	 * OV2640 VSYNC=LOW during active frame ? FRAM_VLD_POL=1 (frame valid on LOW)
+	 * OV2640 HREF=HIGH during active pixels ? LINE_VLD_POL=1 (line valid on HIGH)
+	 * Boot ROM sets both to 1; this is the correct setting for OV2640. */
+	qc7xx_cam_feature_control(&data->cam_hal_device, CAM_CMD_SET_VSYNC_POLARITY, 1);
+	qc7xx_cam_feature_control(&data->cam_hal_device, CAM_CMD_SET_HSYNC_POLARITY, 1);
+
 	qc7xx_cam_start(&data->cam_hal_device);
 }
 
@@ -151,14 +191,35 @@ static int video_qcc74x_init(const struct device *dev)
 		LOG_ERR("Failed to configure CAM clock: %d", ret);
 	}
 
+	/*
+	 * Configure cam_ref_clk for the sensor MCLK output on GPIO23.
+	 * GPIO23 is wired to CHIP_CLK_OUT_2 internally.
+	 * Source: WIFIPLL_96M (96 MHz), divider 3 ? 96/(3+1) = 24 MHz.
+	 * OV2640 XVCLK range is 6–54 MHz; 24 MHz is the standard reference.
+	 */
+	GLB_Set_CAM_CLK(1, GLB_CAM_CLK_WIFIPLL_96M, 3);
+	GLB_Set_Chip_Clock_Out2_Sel(GLB_CHIP_CLK_OUT_2_CAM_REF_CLK);
+
 	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (ret != 0) {
 		LOG_ERR("Pin control setup failed: %d", ret);
 		return ret;
 	}
 
+	/* Enable pull-up on CAM DVP input pins (GPIO24-34).
+	 * The WeAct OV2640 module / EVK requires pull-ups for proper signal
+	 * detection.  The old (working) project had bias-pull-up in DTS;
+	 * the V44 pinmux macros omit it. Set PU bit (bit 4) directly. */
+	for (int pin = 24; pin <= 34; pin++) {
+		uint32_t addr = GLB_GPIO_CFG(pin);
+		uint32_t val = sys_read32(addr);
+		val |= (1U << 4);  /* GLB_REG_GPIO_0_PU */
+		sys_write32(val, addr);
+	}
+
 	k_fifo_init(&data->fifo_in);
 	k_fifo_init(&data->fifo_out);
+	k_work_init_delayable(&data->diag_work, video_qcc74x_diag_work_handler);
 
 	config->irq_init();
 	regval = sys_read32(config->reg_base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
@@ -168,7 +229,7 @@ static int video_qcc74x_init(const struct device *dev)
 	sys_write32(regval, config->reg_base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
 	/* Save default format */
-	ret = video_get_format(config->source_dev, VIDEO_EP_OUT, &data->video_format);
+	ret = video_get_format(config->source_dev, &data->video_format);
 	if (ret != 0) {
 		LOG_ERR("Cannot get video format.");
 		return ret;
@@ -187,14 +248,25 @@ static void video_qcc74x_isr(const struct device *dev)
 	struct video_qcc74x_data *data = dev->data;
 	struct video_buffer *next_buffer = NULL;
 
+	/* Stop DVP immediately to prevent writing beyond the frame buffer */
+	qc7xx_cam_stop(&data->cam_hal_device);
+
+	/* First frame captured — cancel the no-ISR diagnostic timer */
+	k_work_cancel_delayable(&data->diag_work);
+
 	qc7xx_cam_int_clear(&data->cam_hal_device, CAM_REG_INT_NORMAL_CLR);
 	qc7xx_cam_pop_one_frame(&data->cam_hal_device);
 
 	if (data->active_buffer == NULL) {
-		LOG_INF("No video buffers available. Call video_enqueue first \n");
+		/* Stop DVP to prevent repeated ISR firing while waiting for a buffer.
+		 * video_qcc74x_enqueue will restart capture when a buffer is available. */
+		qc7xx_cam_stop(&data->cam_hal_device);
 		return;
 	}
 
+	/* DVP DMA on QCC748 is cache-coherent: writes to PSRAM automatically
+	 * update the CPU cache. No explicit cache invalidation needed.
+	 * (The old working project had no cache operations here.) */
 	data->active_buffer->timestamp = k_uptime_get_32();
 	k_fifo_put(&data->fifo_out, data->active_buffer);
 
@@ -206,9 +278,10 @@ static void video_qcc74x_isr(const struct device *dev)
 
 	next_buffer = k_fifo_get(&data->fifo_in, K_NO_WAIT);
 	if (next_buffer == NULL) {
-		/* Current buffer will be re-used. It could then being overwritten before
-		 * fully consumed by client. */
-		LOG_WRN("Buffer for the next frame is not available.");
+		/* No buffer available — DVP stays stopped (cam_stop at ISR entry).
+		 * Set active_buffer=NULL so video_qcc74x_enqueue can detect this
+		 * and restart capture when a buffer is re-enqueued. */
+		data->active_buffer = NULL;
 		return;
 	}
 
@@ -219,70 +292,71 @@ static void video_qcc74x_isr(const struct device *dev)
 
 /* Video  API Implementation */
 
-static int video_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_format *fmt)
+static int video_qcc74x_set_fmt(const struct device *dev, struct video_format *fmt)
 {
 	const struct video_qcc74x_config *config = dev->config;
 	struct video_qcc74x_data *data = dev->data;
 
-	if (fmt == NULL || ep != VIDEO_EP_OUT) {
+	if (fmt == NULL) {
 		return -EINVAL;
 	}
 
-	data->video_format = *fmt;
+	int ret = video_set_format(config->source_dev, fmt);
 
-	return video_set_format(config->source_dev, ep, fmt);
+	if (ret == 0) {
+		/* Save after source updates pitch/size via video_estimate_fmt_size */
+		data->video_format = *fmt;
+	}
+
+	return ret;
 }
 
-static int video_qcc74x_get_fmt(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_format *fmt)
+static int video_qcc74x_get_fmt(const struct device *dev, struct video_format *fmt)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (fmt == NULL || ep != VIDEO_EP_OUT) {
+	if (fmt == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_format(config->source_dev, ep, fmt);
+	return video_get_format(config->source_dev, fmt);
 }
 
-static int video_qcc74x_set_frmival(const struct device *dev, enum video_endpoint_id ep,
-				  struct video_frmival *frmival)
+static int video_qcc74x_set_frmival(const struct device *dev, struct video_frmival *frmival)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (frmival == NULL || ep != VIDEO_EP_OUT) {
+	if (frmival == NULL) {
 		return -EINVAL;
 	}
 
-	return video_set_frmival(config->source_dev, ep, frmival);
+	return video_set_frmival(config->source_dev, frmival);
 }
 
-static int video_qcc74x_get_frmival(const struct device *dev, enum video_endpoint_id ep,
-				  struct video_frmival *frmival)
+static int video_qcc74x_get_frmival(const struct device *dev, struct video_frmival *frmival)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (frmival == NULL || ep != VIDEO_EP_OUT) {
+	if (frmival == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_frmival(config->source_dev, ep, frmival);
+	return video_get_frmival(config->source_dev, frmival);
 }
 
-static int video_qcc74x_get_caps(const struct device *dev, enum video_endpoint_id ep,
-			       struct video_caps *caps)
+static int video_qcc74x_get_caps(const struct device *dev, struct video_caps *caps)
 {
 	const struct video_qcc74x_config *config = dev->config;
 
-	if (caps == NULL || ep != VIDEO_EP_OUT) {
+	if (caps == NULL) {
 		return -EINVAL;
 	}
 
-	return video_get_caps(config->source_dev, ep, caps);
+	return video_get_caps(config->source_dev, caps);
 }
 
-static int video_qcc74x_set_stream(const struct device *dev, bool enable)
+static int video_qcc74x_set_stream(const struct device *dev, bool enable,
+				   enum video_buf_type type)
 {
 	const struct video_qcc74x_config *config = dev->config;
 	struct video_qcc74x_data *data = dev->data;
@@ -290,7 +364,7 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 	if (!enable) {
 		qc7xx_cam_stop(&data->cam_hal_device);
 
-		if (video_stream_stop(config->source_dev)) {
+		if (video_stream_stop(config->source_dev, type)) {
 			return -EIO;
 		}
 
@@ -310,7 +384,10 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 
 	video_qcc74x_start_capture(data);
 
-	if (video_stream_start(config->source_dev)) {
+	/* Schedule diagnostic poll: if no ISR fires within 3 s, dump register state */
+	k_work_schedule(&data->diag_work, K_SECONDS(3));
+
+	if (video_stream_start(config->source_dev, type)) {
 		return -EIO;
 	}
 
@@ -318,8 +395,7 @@ static int video_qcc74x_set_stream(const struct device *dev, bool enable)
 	return 0;
 }
 
-static int video_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_buffer *buf)
+static int video_qcc74x_enqueue(const struct device *dev, struct video_buffer *buf)
 {
 	struct video_qcc74x_data *data = dev->data;
 	const uint32_t frame_size = data->video_format.pitch * data->video_format.height;
@@ -333,10 +409,20 @@ static int video_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id
 	buf->bytesused = frame_size;
 	buf->line_offset = 0;
 	k_fifo_put(&data->fifo_in, buf);
+
+	/* If streaming but DVP is stopped (ran out of buffers in ISR),
+	 * restart capture with this newly enqueued buffer. */
+	if (data->stream_started && data->active_buffer == NULL) {
+		data->active_buffer = k_fifo_get(&data->fifo_in, K_NO_WAIT);
+		if (data->active_buffer != NULL) {
+			video_qcc74x_start_capture(data);
+		}
+	}
+
 	return 0;
 }
 
-static int video_qcc74x_dequeue(const struct device *dev, enum video_endpoint_id ep,
+static int video_qcc74x_dequeue(const struct device *dev,
 			      struct video_buffer **buf, k_timeout_t timeout)
 {
 	struct video_qcc74x_data *data = dev->data;
@@ -350,7 +436,7 @@ static int video_qcc74x_dequeue(const struct device *dev, enum video_endpoint_id
 	return 0;
 }
 
-static int video_qcc74x_flush(const struct device *dev, enum video_endpoint_id ep, bool cancel)
+static int video_qcc74x_flush(const struct device *dev, bool cancel)
 {
 	struct video_qcc74x_data *data = dev->data;
 	struct video_buffer *vbuf = data->active_buffer;
@@ -379,22 +465,24 @@ static int video_qcc74x_flush(const struct device *dev, enum video_endpoint_id e
 	return 0;
 }
 
-static inline int video_qcc74x_set_ctrl(const struct device *dev, unsigned int cid, void *value)
+static inline int video_qcc74x_set_ctrl(const struct device *dev, uint32_t cid)
 {
 	const struct video_qcc74x_config *config = dev->config;
+	struct video_control ctrl = { .id = cid };
 
-	return video_set_ctrl(config->source_dev, cid, value);
+	return video_set_ctrl(config->source_dev, &ctrl);
 }
 
-static inline int video_qcc74x_get_ctrl(const struct device *dev, unsigned int cid, void *value)
+static inline int video_qcc74x_get_ctrl(const struct device *dev, uint32_t cid)
 {
 	const struct video_qcc74x_config *config = dev->config;
+	struct video_control ctrl = { .id = cid };
 
-	return video_get_ctrl(config->source_dev, cid, value);
+	return video_get_ctrl(config->source_dev, &ctrl);
 }
 
 #ifdef CONFIG_POLL
-static int video_qcc74x_set_signal(const struct device *dev, enum video_endpoint_id ep,
+static int video_qcc74x_set_signal(const struct device *dev,
 				 struct k_poll_signal *signal)
 {
 	struct video_qcc74x_data *data = dev->data;
@@ -419,7 +507,7 @@ static DEVICE_API(video, video_qcc74x_driver_api) = {
 	.dequeue = video_qcc74x_dequeue,
 	.flush = video_qcc74x_flush,
 	.set_ctrl = video_qcc74x_set_ctrl,
-	.get_ctrl = video_qcc74x_get_ctrl,
+	.get_volatile_ctrl = video_qcc74x_get_ctrl,
 #ifdef CONFIG_POLL
 	.set_signal = video_qcc74x_set_signal,
 #endif

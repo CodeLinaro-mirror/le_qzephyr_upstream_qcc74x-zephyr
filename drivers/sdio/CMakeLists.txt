@@ -1,11 +1,4 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
-
-# Contains code under the following license:
-#
-# Not a contribution.
-#
-# Copyright (c) Zephyr Project members and individual contributors.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD-3-Clause
 
 zephyr_library_sources_ifdef(CONFIG_SDIO_QCC74X sdio_qcc74x.c)

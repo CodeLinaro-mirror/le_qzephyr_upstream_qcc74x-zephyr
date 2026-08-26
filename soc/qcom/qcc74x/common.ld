@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 /*
@@ -202,6 +202,7 @@ SECTIONS
 
     .init_code :
     {
+        /* Keep every routine used before the PSRAM copy in executable ROM. */
         *system_qcc74x*.o*(.rodata*)
         *system_qcc74x*.o*(.srodata*)
         *system_qcc74x*.o*(.text*)
@@ -217,6 +218,15 @@ SECTIONS
         *rv_Sv39*.o*(.rodata*)
         *rv_Sv39*.o*(.srodata*)
         *rv_Sv39*.o*(.text*)
+
+	/*
+        *(.text.arch_bss_zero)
+        *(.text.arch_data_copy)
+        *(.text.arch_early_memset)
+        *(.text.arch_early_memcpy)
+        *(.text.memset)
+        *(.text.memcpy)
+	*/
     } > rom_header
 
     SECTION_PROLOGUE(reset,,)
@@ -246,6 +256,21 @@ SECTIONS
         . = ALIGN(4);
         *(.nocache_noinit_ram)
         *(.noncacheable)
+
+        /* Zephyr's __nocache/__nocache_noinit (zephyr/include/zephyr/linker/
+         * section_tags.h, gated on CONFIG_NOCACHE_MEMORY) emit input
+         * sections named ".nocache" / ".nocache.<file>.<n>" (see
+         * zephyr/arch/common/nocache.ld, the upstream reference for this
+         * mechanism, which places them NOLOAD like this section) -- not
+         * ".nocache_ram"/".nocache_noinit_ram". Without matching them here,
+         * any driver using __nocache/__nocache_noinit (e.g. crypto session
+         * descriptors that a hardware engine reads/writes by DMA, bypassing
+         * the CPU cache) silently lands in ordinary cacheable RAM instead of
+         * this non-cache-aliased region, so the hardware and the CPU can
+         * each observe a different, stale copy of the same descriptor.
+         */
+        *(.nocache)
+        *(".nocache.*")
 
         . = ALIGN(4);
     } > ram_nocache
@@ -291,15 +316,27 @@ SECTIONS
         PROVIDE( __global_pointer$ = . + 0x800 );
 
         /* ram_data has a section alignment of 8 (forced by a uint64_t
-         * field inside struct bt_dev in one of its input sections). When
-         * placing ram_data, ld only 8-byte-aligns the VMA and not the
-         * LMA, which makes the VMA/LMA gaps differ. The single linear
-         * memcpy in arch_data_copy() would then shift the entire .data
-         * initializer image. Every section preceding ram_data must
-         * therefore end on an ALIGN(8) boundary.
-         * See docs/zephyr_sdk_beacon_no_log_debug.md §8 for details.
+         * field inside struct bt_dev in one of its input sections), but it
+         * may also need up to CONFIG_DCACHE_LINE_SIZE bytes for other input
+         * sections (e.g. crypto driver IO buffers aligned to the cache line
+         * size for cache flush/invalidate). ld only aligns the VMA when
+         * placing ram_data, not the LMA -- if this section ends on a
+         * boundary smaller than what ram_data itself needs, ld inserts
+         * VMA-only padding here, and the LMA (which has no such
+         * requirement) does not grow to match. That desyncs the constant
+         * VMA-LMA offset the single linear memcpy in arch_data_copy()
+         * depends on across itcm/dtcm/ram_data, so it copies from the
+         * wrong LMA offset for everything from ram_data onward: .data
+         * (including e.g. picolibc's __stdout) reads back as garbage/zero
+         * in RAM, observed on hardware as a hang before any serial output
+         * the first time libc code dereferences the corrupted pointer.
+         * Aligning to CONFIG_DCACHE_LINE_SIZE here (a superset of the
+         * original ALIGN(8) requirement) means ram_data's own alignment
+         * never needs to insert new VMA-only padding.
+         * See docs/zephyr_sdk_beacon_no_log_debug.md §8 for the original
+         * 8-byte (bt_dev) instance of this same class of bug.
          */
-        . = ALIGN(8);
+        . = ALIGN(CONFIG_DCACHE_LINE_SIZE);
     } > ram AT > rom
 
     QCC_SECTION_DATA_PROLOGUE(dtcm, ,)
@@ -309,15 +346,16 @@ SECTIONS
         *(.tcm_data)
         /* *finger_print.o(.data*) */
 
-        /* ram_data needs ALIGN(8) on both VMA and LMA so the single linear
-         * memcpy in arch_data_copy() doesn't shift the .data initializer
-         * image. itcm already ends ALIGN(8); we must do the same here so
-         * that any .tcm_data input (e.g. rwip_heap_non_ret) doesn't leave
-         * dtcm at a non-8-aligned end, which would force ram_data VMA to
-         * fill 4 bytes that the LMA doesn't have.
+        /* Same requirement as itcm above: dtcm must end on a boundary at
+         * least as large as ram_data's own alignment requirement, or ld's
+         * VMA-only padding in front of ram_data desyncs the VMA-LMA offset
+         * that arch_data_copy()'s single linear memcpy relies on. itcm
+         * already ends aligned to CONFIG_DCACHE_LINE_SIZE; dtcm must match
+         * so that .tcm_data input (e.g. rwip_heap_non_ret) can't leave it
+         * short.
          * See docs/zephyr_sdk_beacon_no_log_debug.md §8.
          */
-        . = ALIGN(8);
+        . = ALIGN(CONFIG_DCACHE_LINE_SIZE);
     } > ram AT > rom
 
     QCC_SECTION_DATA_PROLOGUE(ram_data, ,)
@@ -447,12 +485,20 @@ SECTIONS
         . = ALIGN(32);
 
 #ifdef CONFIG_PSRAM_COPY_CODE
+        /* Relocate the library groups validated for PSRAM execution. */
+        *libapp.a*:*(.text*)
         *liblib*.a*:*(.text*)
         *libdriver*.a*:*(.text*)
         *libkernel.a*:*(.text*)
-        *liblib*.a*:*(.rodata*)
-        *libdriver*.a*:*(.rodata*)
-        *libkernel.a*:*(.rodata*)
+        *libsubsys*.a*:*(.text*)
+        *libzperf.a*:*(.text*)
+
+        *libapp.a*:*(.rodata* .srodata*)
+        *liblib*.a*:*(.rodata* .srodata*)
+        *libdriver*.a*:*(.rodata* .srodata*)
+        *libkernel.a*:*(.rodata* .srodata*)
+        *libsubsys*.a*:*(.rodata* .srodata*)
+        *libzperf.a*:*(.rodata* .srodata*)
         . = ALIGN(32);
 #endif
 
@@ -609,6 +655,9 @@ SECTIONS
     __rodata_region_start = .;
 #include <zephyr/linker/common-rom.ld>
 #include <snippets-rom-sections.ld>
+/* SECTIONS-type linker fragments (e.g. ITERABLE_SECTION_ROM for USB DFU,
+ * BT, etc.) land in snippets-sections.ld, not snippets-rom-sections.ld. */
+#include <snippets-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 #include <zephyr/linker/cplusplus-rom.ld>
 

@@ -1,17 +1,11 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
-
-# Contains code under the following license:
-#
-# Not a contribution.
-#
-# Copyright (c) Zephyr Project members and individual contributors.
-# SPDX-License-Identifier: Apache-2.0.
+# SPDX-License-Identifier: BSD-3-Clause
 
 config SOC_SERIES_QCC74X
 	select RISCV
 	select RISCV_PRIVILEGED
 	select RISCV_HAS_CLIC
+	select RISCV_SOC_CONTEXT_SAVE if !QCC74X_WIFI_PERF_MODE
 	select INCLUDE_RESET_VECTOR
 	select RISCV_SOC_HAS_GP_RELATIVE_ADDRESSING
 	select DYNAMIC_INTERRUPTS
@@ -37,8 +31,30 @@ config SOC_SERIES_QCC74X
 	select MULTI_HEAP
 	select SYS_HEAP_RUNTIME_STATS
 	select HAS_PM
+	select HAS_POWEROFF
+	select SOC_EARLY_INIT_HOOK if POWEROFF
 
 if SOC_SERIES_QCC74X
+
+config QCC74X_HBN_SHELL
+	bool "Enable QCC74X HBN shell command"
+	depends on POWEROFF && SHELL
+	default n
+	help
+	  Enable the QCC74X-specific HBN shell command. The command uses the
+	  Zephyr system-off API and is available to any shell-enabled
+	  application built for QCC74X; it is not tied to a particular sample.
+
+	  The command provides HBN wake information query and clear operations.
+	  QCC74X Zephyr HBN always uses HBN0 and supports RTC or ACOMP edge wake.
+
+config QCC74X_WIFI_PERF_MODE
+	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
+	default n
+	help
+	  Enable in WiFi-throughput builds only. Without this option,
+	  RISCV_SOC_CONTEXT_SAVE is selected, which adds two function calls
+	  (__soc_save_context / __soc_restore_context) to every trap entry/exit.
 
 config QCC74X_PM_DIAGNOSTICS
 	bool "Enable QCC74X PM diagnostics"

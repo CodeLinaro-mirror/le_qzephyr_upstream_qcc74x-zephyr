@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #define DT_DRV_COMPAT qcom_qcc74x_gpio
@@ -198,6 +198,59 @@ static int gpio_qcc74x_port_toggle_bits(const struct device *dev, uint32_t mask)
 }
 
 /**
+ * @brief Read back the configured direction of the requested pins.
+ *
+ * Each pin owns a per-pin config word at base_reg + (pin << 2). The IE
+ * (input-enable) and OE (output-enable) bits written by gpio_qcc74x_config()
+ * are simply read back here: a pin is reported as input when IE is set and as
+ * output when OE is set (both can be set for input-output mode, neither for a
+ * disconnected pin).
+ *
+ * @param dev		GPIO driver device struct.
+ * @param map		Bitmap of pins whose direction is queried.
+ * @param inputs	If non-NULL, filled with the pins configured as input.
+ * @param outputs	If non-NULL, filled with the pins configured as output.
+ * @return		0 on success.
+ */
+#ifdef CONFIG_GPIO_GET_DIRECTION
+static int gpio_qcc74x_port_get_direction(const struct device *dev, gpio_port_pins_t map,
+					  gpio_port_pins_t *inputs, gpio_port_pins_t *outputs)
+{
+	const struct gpio_qcc74x_config *const cfg = dev->config;
+	uint32_t gpio_pin_offset_addr = cfg->base_reg;
+	gpio_port_pins_t ip = 0U;
+	gpio_port_pins_t op = 0U;
+	uint32_t reg = 0U;
+
+	/* Restrict the query to pins that actually exist on this port. */
+	map &= cfg->common.port_pin_mask;
+
+	while (map != 0U) {
+		gpio_pin_t pin = find_lsb_set(map) - 1;
+
+		reg = sys_read32(gpio_pin_offset_addr + (pin << 2));
+		if ((reg & GLB_REG_GPIO_0_IE_MSK) != 0U) {
+			ip |= BIT(pin);
+		}
+		if ((reg & GLB_REG_GPIO_0_OE_MSK) != 0U) {
+			op |= BIT(pin);
+		}
+		map &= ~BIT(pin);
+	}
+
+	if (inputs != NULL) {
+		*inputs = ip;
+	}
+	if (outputs != NULL) {
+		*outputs = op;
+	}
+
+	LOG_DBG("Port direction: inputs=0x%08x outputs=0x%08x", ip, op);
+	return 0;
+}
+#endif /* CONFIG_GPIO_GET_DIRECTION */
+
+/**
  * @brief Configure GPIO interrupt mode.
  *
  * @param	dev 	GPIO driver device struct.
@@ -307,6 +360,7 @@ static int gpio_qcc74x_pin_interrupt_configure(const struct device *dev, const g
 		tmp_val = sys_read32(gpio_pin_offset_addr + (pin << 2));
 		tmp_val |= GLB_REG_GPIO_0_INT_MASK_MSK;
 		sys_write32(tmp_val, gpio_pin_offset_addr + (pin << 2));
+		gpio_qcc74x_pin_interrupt_clear(dev, BIT(pin));
 		gpio_qcc74x_int_src_untrack(data, pin);
 		LOG_DBG("Pin interrupt disabled: pin=%u", pin);
 	}
@@ -472,6 +526,9 @@ static const struct gpio_driver_api gpio_qcc74x_api = {
 	.port_toggle_bits = gpio_qcc74x_port_toggle_bits,
 	.pin_interrupt_configure = gpio_qcc74x_pin_interrupt_configure,
 	.manage_callback = gpio_qcc74x_manage_callback,
+#ifdef CONFIG_GPIO_GET_DIRECTION
+	.port_get_direction = gpio_qcc74x_port_get_direction,
+#endif
 };
 
 #define GPIO_QCC74X_DEVICE(n)                                                                        \

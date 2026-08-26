@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <mem.h>
@@ -262,7 +262,7 @@
 			#size-cells = <0>;
 		};
 
-		dma: dma@2000c000 {
+		dma: tst_dma0: dma@2000c000 {
 			compatible = "qcom,qcc74x-dma";
 			reg = <0x2000c000 0x1000>;
 			interrupts = <DMA0_ALL_IRQn IRQ_DEFAULT_PRIORITY 0>;
@@ -311,6 +311,7 @@
 			clock-gate = <QC7XX_PERIPHERAL_TIMER0>;
 			resets = <&reset QC7XX_RESET_TIMER>;
 			channels = <3>;
+			periph-idx = <0>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
@@ -323,6 +324,7 @@
 				clock-div = <79>;
 				resets = <&reset QC7XX_RESET_TIMER>;
 				channels = <3>;
+				periph-idx = <1>;
 				status = "disabled";
 			};
 

@@ -1,7 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #define DT_DRV_COMPAT qcom_qcc74x_jpeg
@@ -9,11 +8,15 @@
 #include <errno.h>
 #include <zephyr/kernel.h>
 #include <zephyr/irq.h>
+#include <zephyr/cache.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/video/jpeg_qcc74x.h>
 #include <zephyr/drivers/video-controls.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/reset.h>
+
+#include "video_ctrls.h"
+#include "video_device.h"
 
 #include "qc7xx_mjpeg.h"
 #include "jpeg/jpeg_head.h"
@@ -39,23 +42,34 @@ struct jpeg_qcc74x_config {
 };
 
 /**
+ * @brief Per-direction fifo pair and streaming state, mirroring video_stm32_jpeg.c
+ */
+struct video_common_header {
+	struct k_fifo fifo_in;  /* not-yet-processed buffers, queued by the app */
+	struct k_fifo fifo_out; /* processed buffers, waiting to be dequeued by the app */
+	bool is_streaming;
+};
+
+struct video_m2m_common {
+	struct video_common_header in;
+	struct video_common_header out;
+};
+
+/**
  * @brief Per-instance runtime data
  */
 struct jpeg_qcc74x_data {
 	struct k_mutex lock;
-	struct k_fifo fifo_in;
-	struct k_fifo fifo_out;
-	struct k_fifo fifo_appin;
-	struct k_fifo fifo_appout;
+	struct video_m2m_common m2m;
 	struct video_buffer *current_in;
 	struct video_buffer *current_out;
-	atomic_t is_streaming;
 	atomic_t codec_is_running;
 	atomic_t start_pending;
 	struct k_work start_work; /* Deferred start work */
 	const struct device *dev; /* Back-pointer to device */
 	struct qc7xx_device_s mjpeg;
 	struct qc7xx_mjpeg_config_s m_config;
+	struct video_ctrl jpeg_quality;
 	uint8_t jpg_head_buf[800];
 };
 
@@ -166,14 +180,12 @@ static int mjpeg_to_jpeg_mode(int format)
 static int jpeg_qcc74x_start_codec(const struct device *dev)
 {
 	struct jpeg_qcc74x_data *data = dev->data;
-	struct k_fifo *in_fifo = &data->fifo_in;
-	struct k_fifo *out_fifo = &data->fifo_out;
+	struct k_fifo *in_fifo = &data->m2m.in.fifo_in;
+	struct k_fifo *out_fifo = &data->m2m.out.fifo_in;
 
-	LOG_DBG("Start encoder...");
 
 	if (k_fifo_is_empty(in_fifo) || k_fifo_is_empty(out_fifo)) {
-		LOG_INF("Encoder queue is empty!");
-		return -EAGAIN;
+			return -EAGAIN;
 	}
 
 	/* Get one in/out buffer pair */
@@ -181,6 +193,7 @@ static int jpeg_qcc74x_start_codec(const struct device *dev)
 	data->current_out = k_fifo_get(out_fifo, K_NO_WAIT);
 
 	/* Configure mjpeg encoder */
+	data->m_config.quality = (uint8_t)data->jpeg_quality.val;
 	if (!IN_RANGE(data->m_config.quality, JPEG_QUALITY_MIN, JPEG_QUALITY_MAX)) {
 		data->m_config.quality = JPEG_QUALITY;
 	}
@@ -220,6 +233,12 @@ static int jpeg_qcc74x_start_codec(const struct device *dev)
 	data->m_config.rows = data->m_config.resolution_y;
 	qc7xx_mjpeg_update_input_output_buff(&data->mjpeg, data->current_in->buffer, NULL,
 					     data->current_out->buffer, data->current_out->size);
+
+	/* Note: explicit cache flush removed — PSRAM is uncached or write-through on
+	 * QCC74x, so CPU writes are visible to MJPEG DMA without flushing.
+	 * Flushing a 200KB input buffer evicts the entire L1 D-cache, causing MJPEG
+	 * DMA to run 10x slower (uncached path ~10MB/s vs cached ~100MB/s). */
+
 	irq_enable(data->mjpeg.irq_num);
 
 	/* Start mjpeg encoder */
@@ -275,7 +294,8 @@ static void jpeg_qcc74x_start_work_handler(struct k_work *work)
 	/* Protect shared state */
 	k_mutex_lock(&data->lock, K_FOREVER);
 
-	if (!atomic_get(&data->codec_is_running) && atomic_get(&data->is_streaming)) {
+	if (!atomic_get(&data->codec_is_running) && data->m2m.in.is_streaming &&
+	    data->m2m.out.is_streaming) {
 
 		int ret = jpeg_qcc74x_start_codec(data->dev);
 		if (ret && ret != -EAGAIN) {
@@ -284,31 +304,6 @@ static void jpeg_qcc74x_start_work_handler(struct k_work *work)
 	}
 
 	k_mutex_unlock(&data->lock);
-}
-
-static int jpeg_qcc74x_set_ctrl(const struct device *dev, unsigned int cid, void *value)
-{
-	struct jpeg_qcc74x_data *data = dev->data;
-	if (value == NULL) {
-		return -EINVAL;
-	}
-
-	switch (cid) {
-	case VIDEO_CID_JPEG_COMPRESSION_QUALITY: {
-		uint32_t quality = *(uint32_t *)value;
-
-		/* Validate range */
-		if (!IN_RANGE(quality, JPEG_QUALITY_MIN, JPEG_QUALITY_MAX)) {
-			return -EINVAL;
-		}
-
-		data->m_config.quality = (uint8_t)quality;
-		return 0;
-	}
-
-	default:
-		return -ENOTSUP;
-	}
 }
 
 /**
@@ -348,8 +343,7 @@ static int pixfmt_to_mjpeg(uint32_t pixfmt)
 	}
 }
 
-static int jpeg_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id ep,
-			     struct video_format *fmt)
+static int jpeg_qcc74x_set_fmt(const struct device *dev, struct video_format *fmt)
 {
 	struct jpeg_qcc74x_data *data = dev->data;
 	int ret = 0;
@@ -358,12 +352,11 @@ static int jpeg_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id 
 		return -EINVAL;
 	}
 
-	if (atomic_get(&data->is_streaming)) {
-		return -EBUSY;
-	}
-
-	switch (ep) {
-	case VIDEO_EP_IN: {
+	switch (fmt->type) {
+	case VIDEO_BUF_TYPE_INPUT: {
+		if (data->m2m.in.is_streaming) {
+			return -EBUSY;
+		}
 
 		int format = pixfmt_to_mjpeg(fmt->pixelformat);
 		if (format < 0) {
@@ -372,9 +365,13 @@ static int jpeg_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id 
 		data->m_config.format = format;
 		break;
 	}
-	case VIDEO_EP_OUT: {
+	case VIDEO_BUF_TYPE_OUTPUT: {
 		uint32_t width = fmt->width;
 		uint32_t height = fmt->height;
+
+		if (data->m2m.out.is_streaming) {
+			return -EBUSY;
+		}
 
 		/* Range validation */
 		if (!IN_RANGE(width, jpeg_qcc74x_out_fmts[0].width_min,
@@ -405,18 +402,20 @@ static int jpeg_qcc74x_set_fmt(const struct device *dev, enum video_endpoint_id 
 	return ret;
 }
 
-static int jpeg_qcc74x_set_stream(const struct device *dev, bool enable)
+static int jpeg_qcc74x_set_stream(const struct device *dev, bool enable, enum video_buf_type type)
 {
 	struct jpeg_qcc74x_data *data = dev->data;
+	struct video_common_header *common =
+		type == VIDEO_BUF_TYPE_INPUT ? &data->m2m.in : &data->m2m.out;
 	int ret = 0;
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
-	if (enable && atomic_get(&data->is_streaming)) {
+	if (enable == common->is_streaming) {
 		ret = -EALREADY;
 	} else {
 
-		atomic_set(&data->is_streaming, enable ? 1 : 0);
+		common->is_streaming = enable;
 
 		/* Stop encoder */
 		if (!enable && data->codec_is_running) {
@@ -424,13 +423,12 @@ static int jpeg_qcc74x_set_stream(const struct device *dev, bool enable)
 			qc7xx_mjpeg_stop(&data->mjpeg);
 			qc7xx_mjpeg_int_clear(&data->mjpeg, 0xFFFFFFFF);
 			k_work_cancel(&data->start_work);
+			atomic_clear(&data->codec_is_running);
 		}
 
-		if (enable) {
-			/* Start encoder */
+		/* Only start once both input and output directions are streaming */
+		if (enable && data->m2m.in.is_streaming && data->m2m.out.is_streaming) {
 			ret = jpeg_qcc74x_start_codec(dev);
-		} else {
-			atomic_clear(&data->codec_is_running);
 		}
 	}
 
@@ -545,8 +543,7 @@ static int mjpeg_min_input_size(int format, int width, int height, uint32_t *out
 	return 0;
 }
 
-static int jpeg_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id ep,
-			     struct video_buffer *vbuf)
+static int jpeg_qcc74x_enqueue(const struct device *dev, struct video_buffer *vbuf)
 {
 	struct jpeg_qcc74x_data *data = dev->data;
 	int ret = 0;
@@ -555,6 +552,7 @@ static int jpeg_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id 
 	if (vbuf == NULL) {
 		return -EINVAL;
 	}
+
 
 	if (vbuf->buffer == NULL || vbuf->size == 0U) {
 		return -EINVAL;
@@ -567,7 +565,7 @@ static int jpeg_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id 
 
 	k_mutex_lock(&data->lock, K_FOREVER);
 
-	if (ep == VIDEO_EP_IN) {
+	if (vbuf->type == VIDEO_BUF_TYPE_INPUT) {
 		uint32_t min_sz = 0;
 		ret = mjpeg_min_input_size(data->m_config.format, data->m_config.resolution_x,
 					   data->m_config.resolution_y, &min_sz);
@@ -582,15 +580,16 @@ static int jpeg_qcc74x_enqueue(const struct device *dev, enum video_endpoint_id 
 			ret = -EINVAL;
 			goto out;
 		}
-		k_fifo_put(&data->fifo_in, vbuf);
-	} else if (ep == VIDEO_EP_OUT) {
-		k_fifo_put(&data->fifo_out, vbuf);
+		k_fifo_put(&data->m2m.in.fifo_in, vbuf);
+	} else if (vbuf->type == VIDEO_BUF_TYPE_OUTPUT) {
+		k_fifo_put(&data->m2m.out.fifo_in, vbuf);
 	} else {
 		ret = -EINVAL;
 	}
 out:
 	/* Try to start codec if necessary */
-	if (ret == 0 && atomic_get(&data->is_streaming) && !atomic_get(&data->codec_is_running)) {
+	if (ret == 0 && data->m2m.in.is_streaming && data->m2m.out.is_streaming &&
+	    !atomic_get(&data->codec_is_running)) {
 		int sret = jpeg_qcc74x_start_codec(dev);
 		if (sret == 0 || sret == -EAGAIN) {
 			/* -EAGAIN means one FIFO still missing a buffer; wait for next enqueue */
@@ -605,21 +604,21 @@ out:
 	return ret;
 }
 
-static int jpeg_qcc74x_dequeue(const struct device *dev, enum video_endpoint_id ep,
-			     struct video_buffer **vbuf, k_timeout_t timeout)
+static int jpeg_qcc74x_dequeue(const struct device *dev, struct video_buffer **vbuf,
+			     k_timeout_t timeout)
 {
 	struct jpeg_qcc74x_data *data = dev->data;
 	int ret = -EINVAL;
 
-	if (vbuf == NULL) {
+	if (vbuf == NULL || *vbuf == NULL) {
 		return ret;
 	}
 
 	/* Retrieve the completed buffer (prepared by ISR) */
-	if (ep == VIDEO_EP_OUT) {
-		*vbuf = (struct video_buffer *)k_fifo_get(&data->fifo_appout, timeout);
-	} else if (ep == VIDEO_EP_IN) {
-		*vbuf = (struct video_buffer *)k_fifo_get(&data->fifo_appin, timeout);
+	if ((*vbuf)->type == VIDEO_BUF_TYPE_OUTPUT) {
+		*vbuf = (struct video_buffer *)k_fifo_get(&data->m2m.out.fifo_out, timeout);
+	} else if ((*vbuf)->type == VIDEO_BUF_TYPE_INPUT) {
+		*vbuf = (struct video_buffer *)k_fifo_get(&data->m2m.in.fifo_out, timeout);
 	} else {
 		return ret;
 	}
@@ -669,9 +668,15 @@ static void jpeg_qcc74x_isr(const struct device *dev)
 		qc7xx_mjpeg_stop(&data->mjpeg);
 		data->current_out->bytesused = pic_len;
 
+		/* Invalidate CPU cache for output buffer so subsequent CPU reads
+		 * see the JPEG data written by MJPEG DMA to physical PSRAM,
+		 * not stale data from a previous encode. The input is not flushed
+		 * (input data is already in physical PSRAM from boot copy). */
+		sys_cache_data_invd_range(data->current_out->buffer, pic_len);
+
 		/* Prepare fifos for application */
-		k_fifo_put(&data->fifo_appin, data->current_in);
-		k_fifo_put(&data->fifo_appout, data->current_out);
+		k_fifo_put(&data->m2m.in.fifo_out, data->current_in);
+		k_fifo_put(&data->m2m.out.fifo_out, data->current_out);
 	}
 
 	irq_disable(data->mjpeg.irq_num);
@@ -679,14 +684,13 @@ static void jpeg_qcc74x_isr(const struct device *dev)
 	atomic_clear(&data->codec_is_running);
 
 	/* Encode next image...*/
-	if (atomic_get(&data->is_streaming)) {
+	if (data->m2m.in.is_streaming && data->m2m.out.is_streaming) {
 		atomic_set(&data->start_pending, 1);
 		(void)k_work_submit(&data->start_work);
 	}
 }
 
-static int jpeg_qcc74x_get_caps(const struct device *dev, enum video_endpoint_id ep,
-			      struct video_caps *caps)
+static int jpeg_qcc74x_get_caps(const struct device *dev, struct video_caps *caps)
 {
 	ARG_UNUSED(dev);
 
@@ -694,9 +698,9 @@ static int jpeg_qcc74x_get_caps(const struct device *dev, enum video_endpoint_id
 		return -EINVAL;
 	}
 
-	if (ep == VIDEO_EP_IN) {
+	if (caps->type == VIDEO_BUF_TYPE_INPUT) {
 		caps->format_caps = jpeg_qcc74x_in_fmts;
-	} else if (ep == VIDEO_EP_OUT) {
+	} else if (caps->type == VIDEO_BUF_TYPE_OUTPUT) {
 		caps->format_caps = jpeg_qcc74x_out_fmts;
 	} else {
 		return -EINVAL;
@@ -767,12 +771,13 @@ static int jpeg_qcc74x_init(const struct device *dev)
 
 	/* Initialize driver runtime synchronization objects */
 	k_mutex_init(&data->lock);
-	k_fifo_init(&data->fifo_in);
-	k_fifo_init(&data->fifo_out);
-	k_fifo_init(&data->fifo_appin);
-	k_fifo_init(&data->fifo_appout);
+	k_fifo_init(&data->m2m.in.fifo_in);
+	k_fifo_init(&data->m2m.in.fifo_out);
+	k_fifo_init(&data->m2m.out.fifo_in);
+	k_fifo_init(&data->m2m.out.fifo_out);
 
-	atomic_clear(&data->is_streaming);
+	data->m2m.in.is_streaming = false;
+	data->m2m.out.is_streaming = false;
 	atomic_clear(&data->codec_is_running);
 	atomic_clear(&data->start_pending);
 	data->dev = dev;
@@ -785,6 +790,15 @@ static int jpeg_qcc74x_init(const struct device *dev)
 	 */
 	k_work_init(&data->start_work, jpeg_qcc74x_start_work_handler);
 
+	ret = video_init_ctrl(&data->jpeg_quality, dev, VIDEO_CID_JPEG_COMPRESSION_QUALITY,
+			      (struct video_ctrl_range){.min = JPEG_QUALITY_MIN,
+							.max = JPEG_QUALITY_MAX,
+							.step = 1,
+							.def = JPEG_QUALITY});
+	if (ret < 0) {
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -795,7 +809,6 @@ static DEVICE_API(video, jpeg_qcc74x_driver_api) = {
 	.enqueue = jpeg_qcc74x_enqueue,
 	.dequeue = jpeg_qcc74x_dequeue,
 	.get_caps = jpeg_qcc74x_get_caps,
-	.set_ctrl = jpeg_qcc74x_set_ctrl,
 };
 
 /* Devicetree-driven instantiation of JPEG QCC74X devices and IRQ handlers */
@@ -829,6 +842,8 @@ static DEVICE_API(video, jpeg_qcc74x_driver_api) = {
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(n, jpeg_qcc74x_init, NULL, &jpeg_qcc74x_data_##n, &jpeg_qcc74x_cfg_##n,    \
 			      POST_KERNEL, CONFIG_VIDEO_INIT_PRIORITY, &jpeg_qcc74x_driver_api);     \
+	                                                                                                   \
+	VIDEO_DEVICE_DEFINE(jpeg_##n, DEVICE_DT_INST_GET(n), NULL);                                        \
                                                                                                    \
 	JPEG_QCC74X_IRQ_HANDLER(n)
 

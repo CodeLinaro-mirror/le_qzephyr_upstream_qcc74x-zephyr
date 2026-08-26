@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <zephyr/kernel.h>
@@ -182,6 +182,10 @@ void *soc_multi_malloc(size_t size)
 
 	if (!p) {
 		while (1) {
+			p = soc_multi_aligned_alloc(64, size);
+			if (p) {
+				break;
+			}
 			printf("%s mem err\r\n", __func__);
 			k_msleep(1000);
 		}

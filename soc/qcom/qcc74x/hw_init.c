@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <zephyr/devicetree.h>
@@ -218,6 +218,15 @@ static void __attribute__((noinline)) peripheral_clock_init_lp(void)
 static void peripheral_clock_init(void)
 {
 	GLB_Swap_MCU_SPI_0_MOSI_With_MISO(0);
+
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(cam), okay)
+	/* Configure cam_ref_clk for the sensor MCLK output on GPIO23 (CHIP_CLK_OUT_2).
+	 * Must run before any camera sensor device init so MCLK is present when the
+	 * sensor releases from reset and its internal PLL tries to lock.
+	 * Source: WIFIPLL_96M (96 MHz), div=3 ? 96/(3+1) = 24 MHz. */
+	GLB_Set_CAM_CLK(1, GLB_CAM_CLK_WIFIPLL_96M, 3);
+	GLB_Set_Chip_Clock_Out2_Sel(GLB_CHIP_CLK_OUT_2_CAM_REF_CLK);
+#endif
 }
 
 #ifndef CONFIG_BOARD_FLASH_LOW_SPEED

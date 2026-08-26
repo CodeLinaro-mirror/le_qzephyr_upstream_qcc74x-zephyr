@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD-3-Clause
 
 # Wireless HAL include dirs (wifi_mgmr_ext.h, fhost_wpa.h, wireless_api.h) are
 # added globally by the QCC74x HAL wireless/socport CMakeLists. Only the local

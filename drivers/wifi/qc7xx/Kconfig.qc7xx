@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD-3-Clause
 
 
 menuconfig WIFI_QCC74X
@@ -118,7 +118,11 @@ config QCC74X_WIFI_COEX_STATS
 config SOC_WIFI_STA_RECONNECT
 	bool "WiFi connection retry"
 	help
-	  Set auto WiFI reconnection when disconnected.
+	  Enable automatic Wi-Fi reconnection after an unexpected disconnect.
+
+	  While a connection or reconnection is in progress, a new Wi-Fi connect
+	  request is rejected with -EALREADY. Wait for the current connection
+	  attempt to complete before submitting another request.
 
 config QC7XX_SOCKET_OFFLOAD
 	bool "QC7xx Socket Offload Support"
