@@ -12,6 +12,7 @@
 #include "qcc74x_glb.h"
 #include "qcc74x_psram.h"
 #include "qcc74x_tzc_sec.h"
+#include "soc_mem.h"
 
 LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);
 
@@ -157,5 +158,7 @@ void soc_late_init_hook(void)
 	} else {
 		printf("psram already init\r\n");
 	}
+
+	soc_multi_heap_psram_add();
 #endif
 }
