@@ -129,6 +129,10 @@ static int soc_multi_heap_init(void)
 
 	register_heap("wram", &wram_heap, wram_start, wram_size);
 
+#ifdef CONFIG_PSRAM
+	soc_multi_heap_psram_add();
+#endif
+
 	soc_multi_heap_ready = soc_heap_region_count > 0U;
 
 	return 0;
