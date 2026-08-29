@@ -41,6 +41,8 @@
 #include "platform_al.h"
 #include "soc_wifi_mgmt.h"
 #include "wifi_mgmr.h"
+#include "wifi_mgmr_pmk.h"
+#include "wireless_api.h"
 #include <wifi_mgmr_ext.h>
 
 LOG_MODULE_REGISTER(qc7xx_wifi, CONFIG_WIFI_LOG_LEVEL);
@@ -140,6 +142,16 @@ static bool qc7xx_wifi_is_sta_runtime(const struct qc7xx_wifi_runtime *data)
 static bool qc7xx_wifi_is_sta_connected(const struct qc7xx_wifi_runtime *data)
 {
 	return qc7xx_wifi_is_sta_runtime(data) && data->state == QC7XX_STA_CONNECTED;
+}
+
+static bool qc7xx_wifi_is_ap_runtime(const struct qc7xx_wifi_runtime *data)
+{
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	return data == &qc7xx_ap_sta_data;
+#else
+	/* Without a second net device the AP shares the STA runtime. */
+	return data == &qc7xx_data;
+#endif
 }
 
 static int qc7xx_wifi_ps_fail(struct wifi_ps_params *params,
@@ -1858,6 +1870,206 @@ static int qc7xx_wifi_filter(const struct device *dev, struct wifi_filter_info *
 	return 0;
 }
 
+static int qc7xx_wifi_get_version(const struct device *dev, struct wifi_version *params)
+{
+	ARG_UNUSED(dev);
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	params->drv_version = "qc7xx";
+	params->fw_version = WIRELESS_VERSION;
+
+	return 0;
+}
+
+static int qc7xx_wifi_reg_domain(const struct device *dev, struct wifi_reg_domain *reg_domain)
+{
+	char country[3] = { 0 };
+	uint8_t c24 = 0U;
+	uint8_t c5 = 0U;
+
+	ARG_UNUSED(dev);
+
+	if (reg_domain == NULL) {
+		return -EINVAL;
+	}
+
+	if (reg_domain->oper == WIFI_MGMT_SET) {
+		country[0] = reg_domain->country_code[0];
+		country[1] = reg_domain->country_code[1];
+
+		return wifi_mgmr_set_country_code(country) == 0 ? 0 : -EIO;
+	}
+
+	if (wifi_mgmr_get_country_code(country) != 0) {
+		return -EIO;
+	}
+
+	reg_domain->country_code[0] = country[0];
+	reg_domain->country_code[1] = country[1];
+
+	if (reg_domain->chan_info == NULL) {
+		reg_domain->num_channels = 0U;
+		return 0;
+	}
+
+	if (wifi_mgmr_get_channel_nums(country, &c24, &c5) != 0) {
+		reg_domain->num_channels = 0U;
+		return 0;
+	}
+
+	/*
+	 * The stack only exposes a channel count per band, not a per-channel
+	 * table, and every 2.4 GHz regulatory domain it knows about starts at
+	 * channel 1 and is contiguous. Per-channel power and DFS flags are not
+	 * retrievable, so they are reported as unknown (0 / false).
+	 */
+	for (uint8_t ch = 1U; ch <= c24; ch++) {
+		struct wifi_reg_chan_info *info = &reg_domain->chan_info[ch - 1U];
+
+		info->center_frequency = ch == 14U ? 2484U : 2407U + (ch * 5U);
+		info->supported = 1U;
+		info->max_power = 0U;
+		info->passive_only = 0U;
+		info->dfs = 0U;
+	}
+
+	reg_domain->num_channels = c24;
+
+	return 0;
+}
+
+static int qc7xx_wifi_pmksa_flush(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+
+	wifi_mgmr_pmk_cache_entry_invalidate();
+
+	return 0;
+}
+
+static int qc7xx_wifi_wps_config(const struct device *dev, struct wifi_wps_config_params *params)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_sta_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	/* The stack only implements the push-button method. */
+	if (params->oper != WIFI_WPS_PBC) {
+		return -ENOTSUP;
+	}
+
+	if (data->monitor_enabled) {
+		return -EBUSY;
+	}
+
+	if (wifi_mgmr_sta_wps_pbc(WIFI_EVENT_BEACON_IND_AUTH_WPA2_PSK) != 0) {
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int qc7xx_wifi_ap_sta_disconnect(const struct device *dev, const uint8_t *mac)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+
+	if (mac == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_ap_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	/*
+	 * wifi_mgmr_ap_sta_delete() is indexed, so walk the station table to
+	 * translate the address the caller gave us.
+	 */
+	for (uint8_t idx = 0U; idx < NX_REMOTE_STA_MAX; idx++) {
+		struct wifi_sta_basic_info info = { 0 };
+
+		if (wifi_mgmr_ap_sta_info_get(&info, idx) != 0) {
+			continue;
+		}
+
+		if (info.is_used == 0U ||
+		    memcmp(info.sta_mac, mac, WIFI_MAC_ADDR_LEN) != 0) {
+			continue;
+		}
+
+		return wifi_mgmr_ap_sta_delete(info.sta_idx) == 0 ? 0 : -EIO;
+	}
+
+	return -ENOENT;
+}
+
+static int qc7xx_wifi_ap_config_params(const struct device *dev,
+				       struct wifi_ap_config_params *params)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+	uint32_t handled = 0U;
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_ap_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	if ((params->type & WIFI_AP_CONFIG_PARAM_MAX_NUM_STA) != 0U) {
+		if (params->max_num_sta == 0U || params->max_num_sta > NX_REMOTE_STA_MAX) {
+			return -EINVAL;
+		}
+
+		if (wifi_mgmr_conf_max_sta((uint8_t)params->max_num_sta) != 0) {
+			return -EIO;
+		}
+
+		handled |= WIFI_AP_CONFIG_PARAM_MAX_NUM_STA;
+	}
+
+	if ((params->type & WIFI_AP_CONFIG_PARAM_BANDWIDTH) != 0U) {
+		uint8_t ht40;
+
+		switch (params->bandwidth) {
+		case WIFI_FREQ_BANDWIDTH_20MHZ:
+			ht40 = 0U;
+			break;
+		case WIFI_FREQ_BANDWIDTH_40MHZ:
+			ht40 = 1U;
+			break;
+		default:
+			return -ENOTSUP;
+		}
+
+		if (wifi_mgmr_set_ht40_enable(ht40) != 0) {
+			return -EIO;
+		}
+
+		handled |= WIFI_AP_CONFIG_PARAM_BANDWIDTH;
+	}
+
+	/*
+	 * max_inactivity is only accepted by wifi_mgmr_ap_start(), so it cannot
+	 * be retuned on a running AP. HT/VHT capability strings need hostapd.
+	 */
+	if ((params->type & ~handled) != 0U) {
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
 static void qc7xx_wifi_handle_sta_connect_event(void *event_data)
 {
 	ARG_UNUSED(event_data);
@@ -2074,6 +2286,12 @@ const struct wifi_mgmt_ops qc7xx_wifi_mgmt = {
 	.filter = qc7xx_wifi_filter,
 	.mode = qc7xx_wifi_mode,
 	.channel = qc7xx_wifi_channel,
+	.get_version = qc7xx_wifi_get_version,
+	.reg_domain = qc7xx_wifi_reg_domain,
+	.pmksa_flush = qc7xx_wifi_pmksa_flush,
+	.wps_config = qc7xx_wifi_wps_config,
+	.ap_sta_disconnect = qc7xx_wifi_ap_sta_disconnect,
+	.ap_config_params = qc7xx_wifi_ap_config_params,
 };
 
 const struct net_wifi_mgmt_offload qc7xx_api = {
