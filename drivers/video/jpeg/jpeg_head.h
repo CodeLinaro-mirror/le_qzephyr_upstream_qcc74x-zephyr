@@ -3,10 +3,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/*
- * Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
- */
-
 #ifndef __JPEG_HEAD_H__
 #define __JPEG_HEAD_H__
 
