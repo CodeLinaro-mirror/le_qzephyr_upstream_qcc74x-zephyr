@@ -12,3 +12,6 @@ family:
   - name: qcc75x
     socs:
     - name: qcc75x
+  - name: qcr373
+    socs:
+    - name: qcr373

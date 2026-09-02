@@ -15,6 +15,9 @@
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include <qcc75x_clock.h>
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <qcr373_clock.h>
+#endif
 
 #define CLOCK_DISABLE (0U)
 #define CLOCK_ENABLE  (1U)

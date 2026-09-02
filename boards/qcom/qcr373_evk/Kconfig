@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: Apache-2.0
+
+# Contains code under the following license:
+#
+# Not a contribution.
+#
+# Copyright (c) Zephyr Project members and individual contributors.
+# SPDX-License-Identifier: Apache-2.0
+
+menu "QCC75x EVK options"
+
+config QCR373_OCRAM_SIZE_AP
+	hex "OCRAM used by AP"
+	default 0x50000
+
+config QCR373_WRAM_SIZE_AP
+	hex "WRAM used by AP"
+	default 0x50000
+
+config QCR373_CODE_SIZE_AP
+	hex "Code size used by AP"
+	default 0x300000
+
+config QCR373_PSRAM_DATA_SIZE_AP
+	hex "PSRAM data size used by AP"
+	default 0x200000
+
+config QCR373_CODE_SIZE_NP
+	hex "Code size used by NP"
+	default 0x200000
+
+endmenu

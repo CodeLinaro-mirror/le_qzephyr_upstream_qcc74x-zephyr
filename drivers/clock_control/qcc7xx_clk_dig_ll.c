@@ -15,6 +15,10 @@
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <qcc75x_clock.h>
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <qcr373_clock.h>
+#endif
 
 uint32_t qcc7xx_clk_dig_ll_get_rate()
 {
