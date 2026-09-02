@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 /* TODO: This file should be moved to HAL in the future */
 

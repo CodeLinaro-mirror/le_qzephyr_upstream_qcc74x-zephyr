@@ -3,10 +3,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/*
- * Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
- */
-
 #include "jpeg_head.h"
 
 static const uint8_t tableQy[] = {16,  11, 12, 14,  12,  10,  16,  14,  13, 14,  18,  17,  16,
