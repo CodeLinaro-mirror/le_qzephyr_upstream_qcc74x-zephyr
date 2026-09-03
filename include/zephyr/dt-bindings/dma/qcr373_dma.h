@@ -1,5 +1,6 @@
 /*
- * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_QCR373_DMA_H_

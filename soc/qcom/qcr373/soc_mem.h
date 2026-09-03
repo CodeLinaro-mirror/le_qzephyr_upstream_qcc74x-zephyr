@@ -1,4 +1,7 @@
-/* SPDX-License-Identifier: Apache-2.0 */
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #ifndef ZEPHYR_SOC_QUALCOMM_QCR373_SOC_MEM_H_
 #define ZEPHYR_SOC_QUALCOMM_QCR373_SOC_MEM_H_

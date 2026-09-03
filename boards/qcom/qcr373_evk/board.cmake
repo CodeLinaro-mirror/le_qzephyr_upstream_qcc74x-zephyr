@@ -1,12 +1,5 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
-# SPDX-License-Identifier: Apache-2.0
-
-# Contains code under the following license:
-#
-# Not a contribution.
-#
-# Copyright (c) Zephyr Project members and individual contributors.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
 
 if(CONFIG_BUILD_WITH_TFM AND CONFIG_TFM_BL2)
 	# BL2 carries a 4 KiB boot header before the XIP base; use that same
