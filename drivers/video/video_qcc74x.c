@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #define DT_DRV_COMPAT qcom_qcc74x_cam
@@ -195,7 +195,7 @@ static int video_qcc74x_init(const struct device *dev)
 	 * Configure cam_ref_clk for the sensor MCLK output on GPIO23.
 	 * GPIO23 is wired to CHIP_CLK_OUT_2 internally.
 	 * Source: WIFIPLL_96M (96 MHz), divider 3 ? 96/(3+1) = 24 MHz.
-	 * OV2640 XVCLK range is 6–54 MHz; 24 MHz is the standard reference.
+	 * OV2640 XVCLK range is 6â€“54 MHz; 24 MHz is the standard reference.
 	 */
 	GLB_Set_CAM_CLK(1, GLB_CAM_CLK_WIFIPLL_96M, 3);
 	GLB_Set_Chip_Clock_Out2_Sel(GLB_CHIP_CLK_OUT_2_CAM_REF_CLK);
@@ -251,7 +251,7 @@ static void video_qcc74x_isr(const struct device *dev)
 	/* Stop DVP immediately to prevent writing beyond the frame buffer */
 	qc7xx_cam_stop(&data->cam_hal_device);
 
-	/* First frame captured — cancel the no-ISR diagnostic timer */
+	/* First frame captured â€” cancel the no-ISR diagnostic timer */
 	k_work_cancel_delayable(&data->diag_work);
 
 	qc7xx_cam_int_clear(&data->cam_hal_device, CAM_REG_INT_NORMAL_CLR);
@@ -278,7 +278,7 @@ static void video_qcc74x_isr(const struct device *dev)
 
 	next_buffer = k_fifo_get(&data->fifo_in, K_NO_WAIT);
 	if (next_buffer == NULL) {
-		/* No buffer available — DVP stays stopped (cam_stop at ISR entry).
+		/* No buffer available â€” DVP stays stopped (cam_stop at ISR entry).
 		 * Set active_buffer=NULL so video_qcc74x_enqueue can detect this
 		 * and restart capture when a buffer is re-enqueued. */
 		data->active_buffer = NULL;
