@@ -1,0 +1,21 @@
+# Device tree binding for QCC74x IEEE 802.15.4 radio
+#
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+description: Qualcomm QCC74x IEEE 802.15.4 radio
+
+compatible: "qcom,qcc74x-ieee802154"
+
+include: base.yaml
+
+properties:
+  channel:
+    type: int
+    default: 11
+    description: Default IEEE 802.15.4 channel (11-26)
+
+  tx-power:
+    type: int
+    default: 10
+    description: Default TX power in dBm (0-14)

@@ -7,6 +7,7 @@
 
 #include <qcom/qcc74x/qcc748.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/interrupt-controller/qc7xx-qcc74x-intmux.h>
 #include "qcc748m_evk-pinctrl.dtsi"
 
 / {
@@ -22,6 +23,7 @@
 		zephyr,shell-uart = &uart0;
 		zephyr,entropy = &trng0;
 		zephyr,bt-hci = &bt_hci;
+		zephyr,ieee802154 = &ieee802154;
 		zephyr,code-partition = &slot0_partition;
 		zephyr,clock-controller = &clock0;
 		zephyr,flash-controller = &flashctrl;
@@ -47,6 +49,20 @@
 		button_0: sw0 {
 			gpios = <&gpio0 2 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
 			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+};
+
+/ {
+	soc {
+		ieee802154: ieee802154@40015000 {
+			compatible = "qcom,qcc74x-ieee802154";
+			reg = <0x40015000 0x1000>;
+			interrupts = <M154_INT_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			status = "okay";
+			channel = <11>;
+			tx-power = <10>;
 		};
 	};
 };
