@@ -32,6 +32,10 @@
 
 #include "qc7xx_wifi_drv_priv.h"
 
+#if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY)
+#include "qc7xx_antenna_diversity.h"
+#endif
+
 #include "fhost_wpa.h"
 #include "net_al.h"
 #include "platform_al.h"
@@ -1465,6 +1469,13 @@ int qc7xx_wifi_dev_init(const struct device *dev)
 	ARG_UNUSED(dev);
 
 	net_al_tx_buf_init();
+
+#if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY)
+	ret = qc7xx_antenna_diversity_init();
+	if (ret != 0) {
+		return ret;
+	}
+#endif
 
 	ret = soc_wifi_init();
 	if (ret != 0) {

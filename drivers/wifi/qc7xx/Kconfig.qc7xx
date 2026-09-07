@@ -79,6 +79,43 @@ config QC7XX_WIFI_SOFTAP_IP_BASE
 
 endif # QC7XX_WIFI_AP_STA_MODE
 
+config CSIDMA_CLI
+	bool "QCC74x CSI DMA capture and shell commands"
+	depends on WIFI_QCC74X
+	depends on SHELL
+	default n
+	help
+	  Enable QCC74x Wi-Fi CSI DMA capture and shell commands.
+
+menuconfig QCC74X_WIFI_ANTENNA_DIVERSITY
+	bool "QCC74x Wi-Fi antenna diversity"
+	depends on WIFI_QCC74X
+	select GPIO
+	default n
+	help
+	  Enable board-controlled Wi-Fi antenna diversity using an RF-switch GPIO.
+
+if QCC74X_WIFI_ANTENNA_DIVERSITY
+
+config QCC74X_WIFI_ANTENNA_DIVERSITY_STATIC
+	bool "Static scan-based antenna selection"
+	default n
+	help
+	  Requires BL Wi-Fi archives that export the static scan command handlers.
+	  The v2.1.12 QCC743 archives do not provide them, so keep this disabled
+	  unless matching archives are installed.
+
+config QCC74X_WIFI_ANTENNA_DIVERSITY_DYNAMIC
+	bool "Dynamic RSSI-based antenna selection"
+	default n
+
+config QCC74X_WIFI_ANTENNA_DIVERSITY_SHELL
+	bool "Antenna diversity shell commands"
+	depends on SHELL
+	default y
+
+endif # QCC74X_WIFI_ANTENNA_DIVERSITY
+
 config QCC74X_WIFI_PS_SUPPORT
 	bool
 	depends on WIFI_QCC74X

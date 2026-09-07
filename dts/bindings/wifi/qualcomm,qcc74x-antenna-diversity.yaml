@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+description: QCC74x Wi-Fi RF switch for two-antenna diversity
+
+compatible: "qualcomm,qcc74x-antenna-diversity"
+
+include: base.yaml
+
+properties:
+  select-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      RF-switch selection GPIO. Logical active selects antenna 0 and logical
+      inactive selects antenna 1. Use GPIO_ACTIVE_LOW when the board uses the
+      opposite electrical polarity.

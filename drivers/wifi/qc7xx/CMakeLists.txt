@@ -17,6 +17,15 @@ else()
     src/qc7xx_wifi_drv.c
     src/qc7xx_wifi_shell.c
   )
+  zephyr_library_sources_ifdef(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY
+    src/qc7xx_antenna_diversity.c
+  )
+  zephyr_library_sources_ifdef(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY_SHELL
+    src/qc7xx_antenna_diversity_shell.c
+  )
+  zephyr_library_sources_ifdef(CONFIG_CSIDMA_CLI
+    src/qc7xx_csidma_shell.c
+  )
 endif()
 
 # RPC service for NP core (network processor)
