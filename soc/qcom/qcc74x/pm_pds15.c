@@ -52,8 +52,6 @@ LOG_MODULE_REGISTER(qcc74x_pm_pds15, CONFIG_QCC74X_PM_PDS15_LOG_LEVEL);
 		}                                                             \
 	} while (0)
 
-extern int qcc74x_pm_pds15_uart_late_resume(void);
-
 struct qcc74x_pm_pds15_context {
 	struct k_spinlock lock;
 	bool initialized;
@@ -1310,7 +1308,6 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	uint64_t before_us;
 	uint64_t elapsed_us;
 	uint32_t wake_reason = 0U;
-	int uart_resume_rc = 0;
 	int fw_rc;
 	int rc;
 	struct qcc74x_wifi_lowpower_session wifi_session = { 0 };
@@ -1447,9 +1444,6 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		if (wifi_session.resume_needed) {
 			qcc74x_wifi_lowpower_resume(&wifi_session, &cfg);
 		}
-		uart_resume_rc = qcc74x_pm_pds15_uart_late_resume();
-
-
 		key = k_spin_lock(&pm_pds15_ctx.lock);
 		pm_pds15_ctx.enter_in_progress = false;
 		pm_pds15_ctx.auto_entry_pending = false;
@@ -1458,8 +1452,7 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		pm_pds15_ctx.resume_cleanup_pending = true;
 		k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-		qcc74x_pm_diag_record_deep_result(0, elapsed_us, wake_reason,
-						  uart_resume_rc);
+		qcc74x_pm_diag_record_deep_result(0, elapsed_us, wake_reason, 0);
 		(void)qcc74x_pm_pds15_auto_expire_if_needed();
 		return 0;
 	}
@@ -1474,8 +1467,7 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	pm_pds15_ctx.timeout_us = 0U;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-	qcc74x_pm_diag_record_deep_result(fw_rc, elapsed_us, wake_reason,
-					  uart_resume_rc);
+	qcc74x_pm_diag_record_deep_result(fw_rc, elapsed_us, wake_reason, 0);
 
 	return fw_rc;
 }

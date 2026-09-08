@@ -67,7 +67,6 @@
 				substate-id = <15>;
 				min-residency-us = <5000>;
 				exit-latency-us = <8000>;
-				zephyr,pm-device-disabled;
 			};
 		};
 	};

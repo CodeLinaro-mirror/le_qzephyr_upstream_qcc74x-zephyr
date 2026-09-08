@@ -6,9 +6,6 @@
 #include <stdint.h>
 #include <errno.h>
 
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
-#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15.h>
@@ -27,7 +24,6 @@
 #include "qcc74x_glb.h"
 #include "qcc74x_sys.h"
 #include "qc7xx_lp.h"
-#include "qc7xx_uart.h"
 #include "qcc74x_glb_gpio.h"
 #include "qcc74x_gpio.h"
 
@@ -50,17 +46,6 @@ extern int hardware_recovery_lp(void);
 #if defined(CONFIG_WIFI)
 extern int qc7xx_wifi_rf_resume_restore(void);
 #endif
-
-static void qcc74x_restore_uart_route_from_lp(void)
-{
-	/*
-	 * SystemInit() resets the UART signal router to "unassigned" on cold
-	 * boot before pinctrl binds TX/RX. PDS15 can lose that router state, so
-	 * make the wake path follow the same reset-then-pinctrl sequence.
-	 */
-	QC7XX_WR_REG(GLB_BASE, GLB_UART_CFG1, 0xffffffff);
-	QC7XX_WR_REG(GLB_BASE, GLB_UART_CFG2, 0x0000ffff);
-}
 
 static void qcc74x_restore_app_clocks_from_lp(void)
 {
@@ -96,31 +81,17 @@ static void qcc74x_restore_app_clocks_from_lp(void)
 static int qcc74x_board_recovery_after_lp(void)
 {
 	int rc = hardware_recovery_lp();
-#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_console), okay)
-	const struct device *const console_dev =
-		DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 	if (rc != 0) {
 		return rc;
 	}
 
-	qcc74x_restore_uart_route_from_lp();
 	/*
 	 * PDS15 wake resumes clocks and UART, but repeated LPFW copy/verify
 	 * also needs the CPU RAM sysmap attributes restored so the 0x63xxxxxx
 	 * cacheable aliases see the same OCRAM/WRAM windows as a cold boot.
 	 */
 	qc7xx_cpu_sysmap_init(false, false);
-
-	if (!device_is_ready(console_dev)) {
-		return -ENODEV;
-	}
-
-	rc = qc7xx_uart_force_resume(console_dev);
-	if (rc != 0) {
-		return rc;
-	}
-#endif
 
 	return rc;
 }
@@ -133,35 +104,6 @@ static void qcc74x_restore_kernel_timer_from_lp(void)
 	 * deep_sleep_rebase() wrapper path.
 	 */
 	qcc74x_pm_pds15_timer_post_wake_resume();
-}
-
-static int qcc74x_restore_shell_uart_from_lp(void)
-{
-#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_console), okay)
-	const struct device *const console_dev =
-		DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
-	
-	if (!device_is_ready(console_dev)) {
-		return -ENODEV;
-	}
-	/**/
-	
-
-	return qc7xx_uart_force_irq_rearm(console_dev);
-#else
-	return 0;
-#endif
-}
-
-int qcc74x_pm_pds15_uart_late_resume(void)
-{
-	int shell_rc;
-
-	shell_rc = qcc74x_restore_shell_uart_from_lp();
-	QCC74X_PM_PDS15_LOG_DBG("qcc74x_pds15_resume: uart-only late resume shell_rc=%d",
-	       shell_rc);
-
-	return shell_rc;
 }
 
 /*
@@ -548,7 +490,6 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 {
 	int board_recovery_rc = 0;
 	int wifi_rf_rc = 0;
-	int shell_rc = 0;
 
 	ARG_UNUSED(arg);
 
@@ -572,8 +513,6 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 #endif
 	qcc74x_restore_kernel_timer_from_lp();
 
-	shell_rc = qcc74x_restore_shell_uart_from_lp();
-
 	/*  re-arm JTAG pins (GPIO0-3 -> JTAG function) after PDS15
 	 * wake. PDS15 resets the GPIO pin mux, which is why JTAG/GDB is lost after
 	 * the first sleep. Restoring GPIO0/1/2/3 to GPIO_FUN_JTAG lets the CH347
@@ -585,7 +524,6 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 		GLB_GPIO_Func_Init(GPIO_FUN_JTAG, jtag_pins, 4);
 	}
 
-	QCC74X_PM_PDS15_LOG_DBG("qcc74x_pds15_resume: post_sys done board_rc=%d wifi_rf_rc=%d shell_rc=%d",
-	       board_recovery_rc, wifi_rf_rc, shell_rc);
+	QCC74X_PM_PDS15_LOG_DBG("qcc74x_pds15_resume: post_sys done board_rc=%d wifi_rf_rc=%d",
+	       board_recovery_rc, wifi_rf_rc);
 }
-
