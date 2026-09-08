@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_QCR373_INTMUX_H_
 #define ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_QCR373_INTMUX_H_
 

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include <zephyr/kernel.h>
 
 /* Emit an explicit zero-filled header so imgtool/wrapper can sign the

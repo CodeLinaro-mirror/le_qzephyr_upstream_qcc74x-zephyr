@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include <zephyr/devicetree.h>
 #include "qcr373_clock.h"
 #include "qcr373_pds.h"
