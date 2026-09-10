@@ -19,10 +19,6 @@ supported:
   - spi
   - counter
   - entropy
-identifiers:
-  - qcr373_devkitp/qcr373
-  - qcr373_devkitp/qcr373/ap
-  - qcr373_devkitp/qcr373/np
 testing:
   ignore_tags:
     - wifi
