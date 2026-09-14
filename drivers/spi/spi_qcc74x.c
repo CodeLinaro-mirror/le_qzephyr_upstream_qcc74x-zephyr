@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -52,10 +52,6 @@ LOG_MODULE_REGISTER(spi_qcc74x);
 #define QC7XX_SPI_TX_FIFO_THRESHOLD 8U
 #define QC7XX_SPI_RX_FIFO_THRESHOLD 0U
 
-#define QC7XX_SPI_CLK_CALC_FACTOR_10 10U
-#define QC7XX_SPI_CLK_CALC_FACTOR_5  5U
-#define QC7XX_SPI_CLK_CALC_FACTOR_2  2U
-
 #define QC7XX_SPI_FRAME_MASK_8_BITS      BIT_MASK(8)
 #define QC7XX_SPI_FRAME_MASK_16_BITS     BIT_MASK(16)
 #define QC7XX_SPI_FRAME_MASK_24_BITS     BIT_MASK(24)
@@ -83,8 +79,13 @@ LOG_MODULE_REGISTER(spi_qcc74x);
 #define SPI_CLR_END BIT(16) /* cr_spi_end_clr */
 #define SPI_CLR_STO BIT(19) /* cr_spi_sto_clr */
 #define SPI_CLR_TXU BIT(20) /* cr_spi_txu_clr */
+#define SPI_EN_STO  BIT(27) /* cr_spi_sto_en */
 
 #endif /* CONFIG_SPI_QCC74X_INTERRUPT */
+
+/* spi_sto_value register: timeout value is measured in SPI engine clocks. */
+#define SPI_STO_VALUE_MASK 0xFFFU
+#define QC7XX_SPI_SLAVE_TIMEOUT_VALUE 0xFFFU
 
 /* spi_fifo_config_0 register (0x40019080) - Error flags */
 #define SPI_FIFO_TX_OVERFLOW  BIT(4)
@@ -315,78 +316,93 @@ static void setup_fifos(const uint32_t base_reg)
 static int calculate_settings(const uint32_t peripheral_clk, const uint32_t desired_freq,
 			      uint8_t *clk_divider, uint8_t *period_divider)
 {
-	uint8_t clock_div = 0U;
-	uint8_t period_div = 0U;
-	uint8_t iter;
-	uint8_t period_tmp;
-	uint32_t actual_freq;
-	uint32_t error;
-	uint32_t smallest_error = UINT32_MAX;
-
 	/*
-	 * Desired frequency formula:
+	 * The SCLK divider chain has two stages:
 	 *
-	 * desired_frequency = peripheral_clock / ((2 * divider - 1) * period_value)
+	 *   spi_clk = peripheral_clk / (SPI_CLK_DIV + 1)
+	 *   SCLK    = spi_clk        / (2 * (SPI_PRD_D + 1))
 	 *
-	 * To validate the request, it is required that total division ratio
-	 * (peripheral_clock / desired_frequency) does not exceed the hardware's
-	 * maximum possible divisor which is:
-	 * ((2 * divider_MAX - 1) * period_value_MAX)
+	 * so, with the register values folded into their effective factors,
+	 *
+	 *   SCLK = peripheral_clk / (2 * clk_div * prd_div)
+	 *
+	 * SPI_CLK_DIV is a 5-bit field and SPI_PRD_D an 8-bit one, giving
+	 * clk_div in 1..32 and prd_div in 1..256.  The fixed divide-by-two comes
+	 * from SCLK spending one PRD_D period in each half of a bit cell, and is
+	 * why the smallest reachable divider still halves the source clock.
+	 *
+	 * Search for the (clk_div, prd_div) pair whose product lands closest to
+	 * the requested frequency, preferring the smallest clk_div so spi_clk
+	 * stays high: the start, stop and interval phases are counted in spi_clk
+	 * periods, and slave mode needs headroom to sample the incoming SCLK.
 	 */
-	if ((peripheral_clk / desired_freq) >
-	    ((QC7XX_SPI_CLK_CALC_FACTOR_2 * QC7XX_SPI_MAX_CLK_DIV - 1) * QC7XX_SPI_PRD_MAX_DIV)) {
+	const uint32_t clk_div_max = (uint32_t)QC7XX_SPI_MAX_CLK_DIV + 1U;
+	const uint32_t prd_div_max = (uint32_t)QC7XX_SPI_PRD_MAX_DIV + 1U;
+	uint32_t best_clk_div = 1U;
+	uint32_t best_prd_div = 1U;
+	uint32_t smallest_error = UINT32_MAX;
+	uint32_t target_ratio;
+	uint32_t achieved_freq;
+
+	if ((desired_freq == 0U) || (peripheral_clk == 0U)) {
 		return -EINVAL;
 	}
 
-	/* Divider is sufficient to obtain desired frequency */
-	if ((peripheral_clk / desired_freq) <=
-	    ((QC7XX_SPI_CLK_CALC_FACTOR_2 * QC7XX_SPI_MAX_CLK_DIV - 1))) {
-		/* Use scaling factor (QC7XX_SPI_CLK_CALC_FACTOR_10)
-		 * to improve integer division accuracy and rounding
-		 */
-		clock_div = (peripheral_clk / QC7XX_SPI_CLK_CALC_FACTOR_2 *
-				     QC7XX_SPI_CLK_CALC_FACTOR_10 / desired_freq +
-			     QC7XX_SPI_CLK_CALC_FACTOR_5) /
-			    QC7XX_SPI_CLK_CALC_FACTOR_10;
-		period_div = 1;
-	} else {
-		/* Period registers need to be used */
-		for (iter = QC7XX_SPI_MAX_CLK_DIV; iter >= 1; iter--) {
-			period_tmp = peripheral_clk /
-				     ((QC7XX_SPI_CLK_CALC_FACTOR_2 * iter - 1) * desired_freq);
+	/* Total ratio wanted after the fixed divide-by-two, rounded to nearest. */
+	target_ratio = (peripheral_clk + desired_freq) / (2U * desired_freq);
+	if (target_ratio == 0U) {
+		/* Requested faster than peripheral_clk / 2; clamp to the fastest. */
+		target_ratio = 1U;
+	}
 
-			if (period_tmp > QC7XX_SPI_PRD_MAX_DIV) {
-				continue;
-			}
+	if (target_ratio > (clk_div_max * prd_div_max)) {
+		LOG_ERR("Frequency %u Hz is not reachable from a %u Hz source", desired_freq,
+			peripheral_clk);
+		return -EINVAL;
+	}
 
-			actual_freq = peripheral_clk /
-				      ((QC7XX_SPI_CLK_CALC_FACTOR_2 * iter - 1) * period_tmp);
+	for (uint32_t clk_div = 1U; clk_div <= clk_div_max; clk_div++) {
+		uint32_t prd_div = (target_ratio + (clk_div / 2U)) / clk_div;
+		uint32_t actual_freq;
+		uint32_t error;
 
-			error = abs(actual_freq - desired_freq);
+		prd_div = CLAMP(prd_div, 1U, prd_div_max);
 
-			if (error == 0) {
-				clock_div = iter;
-				period_div = period_tmp - 1;
+		actual_freq = peripheral_clk / (2U * clk_div * prd_div);
+		error = (actual_freq > desired_freq) ? (actual_freq - desired_freq)
+						    : (desired_freq - actual_freq);
+
+		if (error < smallest_error) {
+			smallest_error = error;
+			best_clk_div = clk_div;
+			best_prd_div = prd_div;
+
+			if (error == 0U) {
 				break;
-			}
-
-			if (error < smallest_error) {
-				clock_div = iter;
-				period_div = period_tmp;
-				smallest_error = error;
 			}
 		}
 	}
-	clock_div = (clock_div != 0U) ? (clock_div - 1U) : 0U;
-	period_div = (period_div != 0U) ? (period_div - 1U) : 0U;
 
-	*clk_divider = clock_div;
-	*period_divider = period_div;
+	*clk_divider = (uint8_t)(best_clk_div - 1U);
+	*period_divider = (uint8_t)(best_prd_div - 1U);
 
-	LOG_DBG("For source freq:%u and desired frequency%u "
-		" following dividers has been chosen:\n"
-		"divider:%u period_reg_val:%u",
-		peripheral_clk, desired_freq, clock_div, period_div);
+	achieved_freq = peripheral_clk / (2U * best_clk_div * best_prd_div);
+
+	/*
+	 * The Zephyr SPI API treats the configured frequency as a maximum rather
+	 * than an exact value, so an inexact match is not an error.  Warn about
+	 * it: the divider chain cannot reach anything above peripheral_clk / 2,
+	 * and a request beyond that is otherwise served silently at half rate.
+	 */
+	if (smallest_error != 0U) {
+		LOG_WRN("Requested SPI frequency %u Hz, using %u Hz "
+			"(source %u Hz, clk_div %u, prd_div %u)",
+			desired_freq, achieved_freq, peripheral_clk, best_clk_div, best_prd_div);
+	} else {
+		LOG_DBG("SPI frequency %u Hz from source %u Hz "
+			"(clk_div %u, prd_div %u)",
+			achieved_freq, peripheral_clk, best_clk_div, best_prd_div);
+	}
 
 	return 0;
 }
@@ -698,14 +714,15 @@ static void frame_to_buffer(const uint32_t base_reg, const uint32_t frame, void 
 static void get_fifo_counts(const uint32_t base_reg, uint8_t *rx_cnt, uint8_t *tx_cnt)
 {
 	const uint32_t reg_val = sys_read32(base_reg + SPI_FIFO_CONFIG_1_OFFSET);
+	const uint8_t frame_size = get_frame_size_bytes(base_reg);
 
 	if (rx_cnt == NULL || tx_cnt == NULL) {
 		LOG_ERR("NULL pointer for FIFO count storage");
 		return;
 	}
 
-	*rx_cnt = ((reg_val & SPI_RX_FIFO_CNT_MASK) >> SPI_RX_FIFO_CNT_SHIFT);
-	*tx_cnt = ((reg_val & SPI_TX_FIFO_CNT_MASK) >> SPI_TX_FIFO_CNT_SHIFT);
+	*rx_cnt = ((reg_val & SPI_RX_FIFO_CNT_MASK) >> SPI_RX_FIFO_CNT_SHIFT) / frame_size;
+	*tx_cnt = ((reg_val & SPI_TX_FIFO_CNT_MASK) >> SPI_TX_FIFO_CNT_SHIFT) / frame_size;
 }
 
 #if !defined(CONFIG_SPI_QCC74X_INTERRUPT) || !defined(CONFIG_SPI_QCC74X_INTERRUPT_SYNC)
@@ -1472,13 +1489,10 @@ static int spi_qcc74x_get_err(const struct device *dev)
 		return -EIO;
 	}
 
-	/* Check slave timeout (bit 3: spi_sto_int) - not fatal, just warn */
-	if (int_sts & SPI_INT_STO) {
-		LOG_WRN("Slave timeout - no clock received");
-		/* Clear by writing 1 to cr_spi_sto_clr (bit 19) */
-		sys_write32(SPI_CLR_STO, config->base_reg + SPI_INT_STS_OFFSET);
-		/* Continue - timeout may be expected in some protocols */
-	}
+	/*
+	 * Do not consume SPI_INT_STO here. STO may be reported together with
+	 * the final RX/TX interrupt; the ISR handles it after servicing FIFOs.
+	 */
 
 	return 0;
 }
@@ -1503,7 +1517,7 @@ static void spi_qcc74x_int_complete(const struct device *dev, int status)
 	 * Read-modify-write to preserve enable bits and other fields.
 	 */
 	reg_val = sys_read32(config->base_reg + SPI_INT_STS_OFFSET);
-	reg_val |= (SPI_MASK_TXF | SPI_MASK_RXF | SPI_MASK_FER | SPI_MASK_TXU);
+	reg_val |= (SPI_MASK_TXF | SPI_MASK_RXF | SPI_MASK_STO | SPI_MASK_FER | SPI_MASK_TXU);
 	sys_write32(reg_val, config->base_reg + SPI_INT_STS_OFFSET);
 
 	/* Mark not busy */
@@ -1550,7 +1564,7 @@ static void spi_qcc74x_shift_fifo_rx(const struct device *dev)
 		}
 
 		/* Advance context pointer and decrement remaining count */
-		spi_context_update_rx(&data->ctx, 1, frame_size);
+		spi_context_update_rx(&data->ctx, frame_size, 1);
 		rx_cnt--;
 	}
 }
@@ -1585,7 +1599,7 @@ static void spi_qcc74x_shift_fifo_tx(const struct device *dev)
 		sys_write32(frame, config->base_reg + SPI_FIFO_WDATA_OFFSET);
 
 		/* Advance context pointer and decrement remaining count */
-		spi_context_update_tx(&data->ctx, 1, frame_size);
+		spi_context_update_tx(&data->ctx, frame_size, 1);
 		tx_cnt--;
 	}
 
@@ -1670,13 +1684,17 @@ static void spi_qcc74x_enable_interrupts(const struct device *dev)
 	uint32_t reg_val;
 
 	reg_val = sys_read32(config->base_reg + SPI_INT_STS_OFFSET);
+	reg_val |= SPI_CLR_STO;
 
 	/* Unmask (enable) TX FIFO, RX FIFO, and error interrupts */
 	reg_val &= ~(SPI_MASK_TXF | SPI_MASK_RXF | SPI_MASK_FER);
 
 	/* Also unmask TX underrun for slave mode error detection */
 	if (spi_context_is_slave(&data->ctx)) {
-		reg_val &= ~SPI_MASK_TXU;
+		reg_val &= ~(SPI_MASK_STO | SPI_MASK_TXU);
+		reg_val |= SPI_EN_STO;
+		sys_write32(QC7XX_SPI_SLAVE_TIMEOUT_VALUE & SPI_STO_VALUE_MASK,
+			    config->base_reg + SPI_STO_VALUE_OFFSET);
 	}
 
 	sys_write32(reg_val, config->base_reg + SPI_INT_STS_OFFSET);
@@ -1760,7 +1778,7 @@ static int spi_qcc74x_transceive_sync(const struct device *dev, const struct spi
 	/* Prepare for transfer */
 	disable_spi(config->base_reg);
 	clear_fifos(config->base_reg);
-	spi_context_buffers_setup(&data->ctx, tx_bufs, rx_bufs, 1);
+	spi_context_buffers_setup(&data->ctx, tx_bufs, rx_bufs, frame_size_bytes);
 
 	/*
 	 * Configure RX ignore per transfer (not only per SPI config).
@@ -2004,7 +2022,26 @@ dma_error:
 	/* Wait for completion (blocks for sync, returns immediately for async) */
 	result = spi_context_wait_for_completion(&data->ctx);
 	if (result != 0) {
-		LOG_ERR("Interrupt transfer failed: %d", result);
+		if (result < 0) {
+			LOG_ERR("Interrupt transfer failed: %d", result);
+		} else {
+			/* Slave success may return the number of received frames. */
+			LOG_DBG("Interrupt transfer completed: %d frames", result);
+		}
+	}
+
+	/*
+	 * TX-only interrupt transfers can finish the SPI context as soon as the
+	 * final frame is queued into the TX FIFO.  That is earlier than the last
+	 * frame leaving the shift register.  If cleanup deasserts CS at that
+	 * point, the slave receives a truncated/corrupted final byte (and its
+	 * interrupt context can leak into the next transfer).  Wait for the
+	 * peripheral to become idle before releasing CS.
+	 */
+	if (result >= 0 && data->ctx.rx_len == 0U &&
+	    !check_spi_status(config->base_reg, true)) {
+		LOG_ERR("TX-only interrupt transfer did not reach idle");
+		result = -ETIMEDOUT;
 	}
 #else
 	/* Polling mode: process buffers using spi_context helpers */
@@ -2036,7 +2073,7 @@ dma_error:
 					frame_to_buffer(config->base_reg, frame_data,
 							(void *)data->ctx.rx_buf);
 				}
-				spi_context_update_rx(&data->ctx, 1, frame_size_bytes);
+				spi_context_update_rx(&data->ctx, frame_size_bytes, 1);
 			}
 			rx_fifo_avail_cnt--;
 		}
@@ -2051,7 +2088,7 @@ dma_error:
 								(void *)data->ctx.tx_buf);
 				}
 				sys_write32(frame, config->base_reg + SPI_FIFO_WDATA_OFFSET);
-				spi_context_update_tx(&data->ctx, 1, frame_size_bytes);
+				spi_context_update_tx(&data->ctx, frame_size_bytes, 1);
 			} else if (spi_context_rx_on(&data->ctx) && dummy_tx_len > 0U) {
 				/* TX done, RX pending: send dummy clocks. */
 				sys_write32(0U, config->base_reg + SPI_FIFO_WDATA_OFFSET);
@@ -2085,12 +2122,20 @@ cleanup:
 	 */
 #ifdef CONFIG_SPI_ASYNC
 	if (!data->ctx.asynchronous || result != 0) {
-		spi_context_cs_control(&data->ctx, false);
-		disable_spi(config->base_reg);
+		if (result != 0 || (spi_config->operation & SPI_HOLD_ON_CS) == 0U) {
+			spi_context_cs_control(&data->ctx, false);
+		}
+		if (result != 0 || (spi_config->operation & SPI_HOLD_ON_CS) == 0U) {
+			disable_spi(config->base_reg);
+		}
 	}
 #else
-	spi_context_cs_control(&data->ctx, false);
-	disable_spi(config->base_reg);
+	if (result != 0 || (spi_config->operation & SPI_HOLD_ON_CS) == 0U) {
+		spi_context_cs_control(&data->ctx, false);
+	}
+	if (result != 0 || (spi_config->operation & SPI_HOLD_ON_CS) == 0U) {
+		disable_spi(config->base_reg);
+	}
 #endif /* CONFIG_SPI_ASYNC */
 #else  /* !CONFIG_SPI_QCC74X_INTERRUPT */
 	spi_context_cs_control(&data->ctx, false);
@@ -2109,9 +2154,13 @@ cleanup:
 
 static int spi_qcc74x_release(const struct device *dev, const struct spi_config *spi_config)
 {
+	const struct spi_qcc74x_config *const config = dev->config;
 	struct spi_qcc74x_data *const data = dev->data;
 
-	ARG_UNUSED(spi_config);
+	if ((spi_config->operation & SPI_HOLD_ON_CS) != 0U) {
+		spi_context_cs_control(&data->ctx, false);
+		disable_spi(config->base_reg);
+	}
 
 	spi_context_unlock_unconditionally(&data->ctx);
 	LOG_DBG("SPI device released");
@@ -2128,6 +2177,7 @@ static int spi_qcc74x_transceive_async(const struct device *dev, const struct sp
 	const struct spi_qcc74x_config *const config = dev->config;
 	struct spi_qcc74x_data *const data = dev->data;
 	struct spi_buf_set empty_buf_set = {0};
+	uint8_t frame_size_bytes = 0U;
 	int32_t result = 0;
 
 	/* Lock context with async=true, which sets ctx.asynchronous */
@@ -2150,10 +2200,12 @@ static int spi_qcc74x_transceive_async(const struct device *dev, const struct sp
 	LOG_DBG("Starting async SPI transfer: tx_bufs=%u, rx_bufs=%u", tx_bufs->count,
 		rx_bufs->count);
 
+	frame_size_bytes = get_frame_size_bytes(config->base_reg);
+
 	/* Prepare for transfer */
 	disable_spi(config->base_reg);
 	clear_fifos(config->base_reg);
-	spi_context_buffers_setup(&data->ctx, tx_bufs, rx_bufs, 1);
+	spi_context_buffers_setup(&data->ctx, tx_bufs, rx_bufs, frame_size_bytes);
 	spi_context_cs_control(&data->ctx, true);
 
 	if (SPI_OP_MODE_GET(spi_config->operation) == SPI_OP_MODE_MASTER) {
@@ -2335,6 +2387,7 @@ static void spi_qcc74x_slave_dma_fallback_work_handler(struct k_work *work)
 static void spi_qcc74x_isr(const struct device *dev)
 {
 	struct spi_qcc74x_data *data = dev->data;
+	const struct spi_qcc74x_config *config = dev->config;
 	uint32_t int_status = 0U;
 
 	int_status = qc7xx_spi_get_intstatus(&data->spi_hal_device);
@@ -2352,8 +2405,7 @@ static void spi_qcc74x_isr(const struct device *dev)
 			return;
 		}
 
-		/* 2. Service RX FIFO first (prevent overflow) */
-		if (int_status & SPI_INT_RXF) {
+		if (int_status & (SPI_INT_RXF | SPI_INT_STO)) {
 			spi_qcc74x_shift_fifo_rx(dev);
 		}
 
@@ -2366,6 +2418,13 @@ static void spi_qcc74x_isr(const struct device *dev)
 		if (!spi_qcc74x_transfer_ongoing(data)) {
 			LOG_DBG("Interrupt transfer complete");
 			spi_qcc74x_int_complete(dev, 0);
+			return;
+		}
+
+		if (int_status & SPI_INT_STO) {
+			LOG_ERR("Slave timeout - no clock received");
+			sys_write32(SPI_CLR_STO, config->base_reg + SPI_INT_STS_OFFSET);
+			spi_qcc74x_int_complete(dev, -ETIMEDOUT);
 			return;
 		}
 	}
