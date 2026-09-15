@@ -18,6 +18,7 @@ endif()
 
 zephyr_sources_ifdef(CONFIG_POWEROFF poweroff.c)
 zephyr_sources_ifdef(CONFIG_QCC74X_HBN_SHELL hbn_shell.c)
+zephyr_sources_ifdef(CONFIG_ANTI_ROLLBACK anti_rollback.c)
 
 if(CONFIG_POWEROFF OR CONFIG_QCC74X_PM_PDS15)
   zephyr_sources(

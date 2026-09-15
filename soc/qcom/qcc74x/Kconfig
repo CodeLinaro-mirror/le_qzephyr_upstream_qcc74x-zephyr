@@ -48,6 +48,26 @@ config QCC74X_HBN_SHELL
 	  The command provides HBN wake information query and clear operations.
 	  QCC74X Zephyr HBN always uses HBN0 and supports RTC or ACOMP edge wake.
 
+config ANTI_ROLLBACK
+	bool "Enable QCC74X application anti-rollback support"
+	default n
+	help
+	  Embed an application anti-rollback version in the image and provide
+	  APIs to read and advance the corresponding eFuse value. The eFuse is
+	  irreversible: call qcc74x_anti_rollback_version_commit() only after a
+	  new image has completed its product-specific health checks.
+
+config APP_ANTI_ROLLBACK_VER
+	int "QCC74X application anti-rollback version"
+	depends on ANTI_ROLLBACK
+	default 0
+	range 0 128
+	help
+	  Version embedded in the firmware image. Version zero is an
+	  unprovisioned image version and cannot be committed to eFuse. Use a
+	  monotonically increasing value in the range 1 through 128 for a
+	  production image that will be committed.
+
 config QCC74X_WIFI_PERF_MODE
 	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
 	default n
