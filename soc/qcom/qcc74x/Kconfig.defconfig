@@ -69,6 +69,9 @@ config PSRAM
 	  Enable application PSRAM support if a device-tree node with
 	  compatible vendor,psram is present and enabled.
 
+config COMMON_LIBC_MALLOC_ARENA_SIZE
+        default 4096 if COMMON_LIBC_MALLOC
+
 config PMP_SLOTS
 	int "Number of PMP slots"
 	default 16
