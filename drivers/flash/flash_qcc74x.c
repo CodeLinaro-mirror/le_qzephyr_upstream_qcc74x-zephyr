@@ -11,6 +11,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/flash.h>
+#include <zephyr/drivers/flash/qcc74x_emergency.h>
 
 #include <qc7xx_flash.h>
 
@@ -41,6 +42,7 @@ struct flash_qcc74x_dev_data {
 	/** Semaphore for synchronizing access to the flash hardware. */
 	struct k_sem sem;
 #endif
+	atomic_t emergency_active;
 };
 
 /**
@@ -92,6 +94,105 @@ static inline void flash_qcc74x_sem_give(const struct device *dev)
 	} while (0)
 
 #endif /* CONFIG_MULTITHREADING */
+
+
+static int flash_qcc74x_emergency_region_validate(
+	const struct flash_qcc74x_emergency_region *region)
+{
+	if (region == NULL || region->offset < 0 || region->size == 0U ||
+	    (region->offset % FLASH_ERASE_BLK_SZ) != 0 ||
+	    (region->size % FLASH_ERASE_BLK_SZ) != 0 ||
+	    (size_t)region->offset > DT_REG_SIZE(SOC_NV_FLASH_NODE) ||
+	    region->size > (DT_REG_SIZE(SOC_NV_FLASH_NODE) - (size_t)region->offset)) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int flash_qcc74x_emergency_try_lock(
+	const struct device *dev,
+	const struct flash_qcc74x_emergency_region *region,
+	struct flash_qcc74x_emergency_session *session)
+{
+	struct flash_qcc74x_dev_data *data;
+	int result;
+
+	if (dev == NULL || session == NULL || !device_is_ready(dev)) {
+		return -EINVAL;
+	}
+
+	result = flash_qcc74x_emergency_region_validate(region);
+	if (result != 0) {
+		return result;
+	}
+
+	data = dev->data;
+	if (!atomic_cas(&data->emergency_active, 0, 1)) {
+		return -EBUSY;
+	}
+
+#ifdef CONFIG_MULTITHREADING
+	result = k_sem_take(&data->sem, K_NO_WAIT);
+	if (result != 0) {
+		atomic_clear(&data->emergency_active);
+		return -EBUSY;
+	}
+#endif
+
+	*session = (struct flash_qcc74x_emergency_session){
+		.dev = dev,
+		.region = *region,
+		.locked = true,
+	};
+	return 0;
+}
+
+int flash_qcc74x_emergency_erase(struct flash_qcc74x_emergency_session *session)
+{
+	int result;
+
+	if (session == NULL || !session->locked ||
+	    flash_qcc74x_emergency_region_validate(&session->region) != 0) {
+		return -EINVAL;
+	}
+
+	result = qc7xx_flash_erase(session->region.offset, session->region.size);
+	return result == 0 ? 0 : -EIO;
+}
+
+int flash_qcc74x_emergency_write(struct flash_qcc74x_emergency_session *session,
+				  off_t offset, const void *buffer, size_t length)
+{
+	int result;
+
+	if (session == NULL || !session->locked || buffer == NULL || length == 0U ||
+	    offset < 0 || (offset % FLASH_WRITE_BLK_SZ) != 0 ||
+	    (length % FLASH_WRITE_BLK_SZ) != 0 || (size_t)offset > session->region.size ||
+	    length > session->region.size - (size_t)offset) {
+		return -EINVAL;
+	}
+
+	result = qc7xx_flash_write(session->region.offset + offset,
+				  (uint8_t *)buffer, length);
+	return result == 0 ? 0 : -EIO;
+}
+
+void flash_qcc74x_emergency_unlock(struct flash_qcc74x_emergency_session *session)
+{
+	struct flash_qcc74x_dev_data *data;
+
+	if (session == NULL || !session->locked || session->dev == NULL) {
+		return;
+	}
+
+	data = session->dev->data;
+#ifdef CONFIG_MULTITHREADING
+	k_sem_give(&data->sem);
+#endif
+	atomic_clear(&data->emergency_active);
+	*session = (struct flash_qcc74x_emergency_session){0};
+}
 
 static int flash_qcc74x_read(const struct device *dev, off_t address, void *buffer, size_t length)
 {
@@ -182,6 +283,7 @@ static int flash_qcc74x_init(const struct device *dev)
 
 	k_sem_init(&dev_data->sem, 1, 1);
 #endif /* CONFIG_MULTITHREADING */
+	atomic_clear(&dev_data->emergency_active);
 	ret = qc7xx_flash_init();
 	if (ret != 0) {
 		LOG_ERR("flash init failed %d", ret);
