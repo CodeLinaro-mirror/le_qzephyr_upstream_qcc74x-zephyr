@@ -1,0 +1,40 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# QCC74x PSA Crypto Transparent Driver Kconfig options
+
+menuconfig PSA_CRYPTO_DRIVER_QCC74X
+	bool "QCC74X PSA Transparent Driver"
+	default y
+	depends on MBEDTLS_PSA_CRYPTO_C
+	select PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT
+	help
+	  Enable PSA Crypto transparent acceleration using the QCC74X SEC
+	  Engine hardware.
+
+	  When enabled, PSA Crypto AES and SHA operations are offloaded to the
+	  on-chip hardware engine.  The driver is registered in
+	  psa_crypto_driver_wrappers.h via the PSA_CRYPTO_DRIVER_QCC74X
+	  compile-time flag, which is generated automatically by CMake when
+	  this option is set.
+
+if PSA_CRYPTO_DRIVER_QCC74X
+
+config PSA_CRYPTO_DRIVER_QCC74X_AES
+	bool "QCC74X PSA AES acceleration"
+	default y
+	help
+	  Enable AES hardware acceleration (ECB, CBC, CTR) via the QCC74X SEC
+	  Engine.  Both one-shot (psa_cipher_encrypt) and streaming
+	  (setup/set_iv/update/finish) paths are accelerated.
+
+config PSA_CRYPTO_DRIVER_QCC74X_HASH
+	bool "QCC74X PSA Hash acceleration"
+	default y
+	depends on CRYPTO
+	depends on DT_HAS_QCOM_QCC74X_CRYPTO_ENABLED
+	help
+	  Enable QCC74X PSA transparent hash acceleration using direct LHAL
+	  access. Supports SHA-1/224/256/384/512/512-224/512-256.
+
+endif # PSA_CRYPTO_DRIVER_QCC74X
