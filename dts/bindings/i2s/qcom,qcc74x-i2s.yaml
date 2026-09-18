@@ -68,3 +68,11 @@ properties:
     default: 0
     description: |
       Value of the clock divider. Should be less or equal to 0x3F.
+
+  slave-mode:
+    type: boolean
+    description: |
+      If present, the I2S controller operates in slave mode: BCLK and LRCLK
+      are driven by an external master (e.g. a codec in master mode).
+      If absent (default), the controller operates in master mode and
+      generates BCLK and LRCLK itself.

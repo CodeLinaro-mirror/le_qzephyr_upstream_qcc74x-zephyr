@@ -221,6 +221,10 @@
 	QC7XX_PINMUX(13, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
 
 /* V44-format macros for I2S0 additional pin combinations */
+#define I2S0_BCLK_GPIO0                                                                         \
+	QC7XX_PINMUX(0,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_FS_GPIO1                                                                           \
+	QC7XX_PINMUX(1,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 #define I2S0_BCLK_GPIO8                                                                         \
 	QC7XX_PINMUX(8,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 #define I2S0_FS_GPIO5                                                                           \
@@ -233,6 +237,10 @@
 	QC7XX_PINMUX(30, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
 #define I2S0_DO_GPIO27                                                                          \
 	QC7XX_PINMUX(27, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DI_GPIO14                                                                          \
+	QC7XX_PINMUX(14, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2S0_DO_GPIO15                                                                          \
+	QC7XX_PINMUX(15, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 
 /* V44-format macros for EMAC (RMII) */
 #define EMAC_REF_CLK_GPIO25                                                                     \
