@@ -71,6 +71,7 @@ struct jpeg_qcc74x_data {
 	struct qc7xx_mjpeg_config_s m_config;
 	struct video_ctrl jpeg_quality;
 	uint8_t jpg_head_buf[800];
+	uint32_t input_pitch;  /* Input buffer row pitch in bytes */
 };
 
 /**
@@ -198,10 +199,11 @@ static int jpeg_qcc74x_start_codec(const struct device *dev)
 		data->m_config.quality = JPEG_QUALITY;
 	}
 
-	data->m_config.input_bufaddr0 = 0;
-	data->m_config.input_bufaddr1 = 0;
-	data->m_config.output_bufaddr = 0;
-	data->m_config.output_bufsize = 0;
+	/* Set buffer addresses BEFORE calling qc7xx_mjpeg_init */
+	data->m_config.input_bufaddr0 = (uint32_t)(uintptr_t)data->current_in->buffer;
+	data->m_config.input_bufaddr1 = (uint32_t)(uintptr_t)data->current_in->buffer;
+	data->m_config.output_bufaddr = (uint32_t)(uintptr_t)data->current_out->buffer;
+	data->m_config.output_bufsize = data->current_out->size;
 
 	/* Use default table */
 	data->m_config.input_yy_table = NULL; /* use default table */
@@ -223,6 +225,11 @@ static int jpeg_qcc74x_start_codec(const struct device *dev)
 
 	LOG_DBG("JPEG mode %d", jpeg_mode);
 
+	/* Set rows to image width (in pixels) for hardware DMA row increment calculation
+	 * Hardware calculates: blocks = rows / 8 = width / 8 (JPEG block width)
+	 * MUST be set BEFORE calling qc7xx_mjpeg_init() */
+	data->m_config.rows = data->m_config.resolution_x;
+
 	/* Init mjpeg encoder */
 	qc7xx_mjpeg_init(&data->mjpeg, &data->m_config);
 	uint32_t jpg_head_len =
@@ -230,8 +237,7 @@ static int jpeg_qcc74x_start_codec(const struct device *dev)
 			       data->m_config.resolution_y, data->jpg_head_buf);
 	qc7xx_mjpeg_fill_jpeg_header_tail(&data->mjpeg, data->jpg_head_buf, jpg_head_len);
 	qc7xx_mjpeg_tcint_mask(&data->mjpeg, false);
-	data->m_config.rows = data->m_config.resolution_y;
-	qc7xx_mjpeg_update_input_output_buff(&data->mjpeg, data->current_in->buffer, NULL,
+	qc7xx_mjpeg_update_input_output_buff(&data->mjpeg, data->current_in->buffer, data->current_in->buffer,
 					     data->current_out->buffer, data->current_out->size);
 
 	/* Note: explicit cache flush removed — PSRAM is uncached or write-through on
@@ -363,6 +369,8 @@ static int jpeg_qcc74x_set_fmt(const struct device *dev, struct video_format *fm
 			return -ENOTSUP;
 		}
 		data->m_config.format = format;
+		/* Save input pitch (row size in bytes) */
+		data->input_pitch = fmt->pitch;
 		break;
 	}
 	case VIDEO_BUF_TYPE_OUTPUT: {
@@ -781,6 +789,9 @@ static int jpeg_qcc74x_init(const struct device *dev)
 	atomic_clear(&data->codec_is_running);
 	atomic_clear(&data->start_pending);
 	data->dev = dev;
+
+	/* Initialize MJPEG config structure */
+	memset(&data->m_config, 0, sizeof(data->m_config));
 	/* Initialize deferred start work item.
 	 *
 	 * The ISR submits this work after an encode completes to restart the
