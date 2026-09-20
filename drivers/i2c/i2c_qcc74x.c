@@ -296,6 +296,14 @@ static void i2c_qcc74x_signal_error(const struct device *dev, int32_t err)
 	data->xfer_result = err;
 
 	i2c_qcc74x_mask_transfer_interrupts(config->base);
+
+	/* Reset hardware state: disable master and flush both FIFOs so the
+	 * controller is ready for the next transfer (fixes TX_UNF leaving
+	 * the bus stuck and subsequent transfers failing). */
+	i2c_qcc74x_disable_master(config->base);
+	i2c_qcc74x_clear_rx_fifo(config->base);
+	i2c_qcc74x_clear_tx_fifo(config->base);
+
 	k_sem_give(&data->xfer_done_sem);
 }
 
@@ -1403,9 +1411,34 @@ static void i2c_qcc74x_handle_fer_interrupt(const struct device *dev)
 	const uint32_t base_reg = config->base;
 	uint32_t fifo_status = sys_read32(base_reg + I2C_FIFO_CONFIG_0_OFFSET);
 
+	/*
+	 * TX_UNF with state=WRITE_WAIT_END and tx_remaining=0 is NOT an error:
+	 * it means the TX FIFO naturally drained at end of transfer.  Treat it
+	 * as normal completion so the END interrupt can finish the transfer.
+	 * Only flag a real error for unexpected underflows (data still pending)
+	 * or any overflow condition.
+	 */
+	bool tx_unf = (fifo_status & I2C_TX_FIFO_UNDERFLOW) != 0U;
+	bool is_normal_drain = tx_unf &&
+			       (data->state == I2C_QCC74X_STATE_WRITE_WAIT_END) &&
+			       (data->tx_remaining == 0U);
+
+	if (is_normal_drain) {
+		/* Spurious TX_UNF at end of write — clear the sticky flag (W1C)
+		 * and also flush the TX FIFO so the controller is clean for the
+		 * next transfer.  Do NOT call signal_error(); let the END
+		 * interrupt fire normally to complete the transfer. */
+		uint32_t clr = sys_read32(base_reg + I2C_FIFO_CONFIG_0_OFFSET);
+
+		clr |= I2C_TX_FIFO_UNDERFLOW;   /* W1C: write 1 to clear */
+		clr |= I2C_TX_FIFO_CLR;         /* flush FIFO */
+		sys_write32(clr, base_reg + I2C_FIFO_CONFIG_0_OFFSET);
+		return;
+	}
+
 	LOG_ERR("I2C FIFO error, status: 0x%02x [%s%s%s%s], state: %d, tx_remaining: %u",
 		fifo_status, (fifo_status & I2C_TX_FIFO_OVERFLOW) ? "TX_OVF " : "",
-		(fifo_status & I2C_TX_FIFO_UNDERFLOW) ? "TX_UNF " : "",
+		tx_unf ? "TX_UNF " : "",
 		(fifo_status & I2C_RX_FIFO_OVERFLOW) ? "RX_OVF " : "",
 		(fifo_status & I2C_RX_FIFO_UNDERFLOW) ? "RX_UNF " : "", data->state,
 		data->tx_remaining);
