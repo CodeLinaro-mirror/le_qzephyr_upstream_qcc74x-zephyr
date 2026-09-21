@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 menu "Device Drivers"
@@ -29,6 +29,7 @@ rsource "mdio/Kconfig.qcc74x"
 rsource "mipi_dbi/Kconfig.qcc74x"
 rsource "pinctrl/Kconfig.qcc74x"
 rsource "pinctrl/Kconfig.qc7xx"
+rsource "psa/Kconfig.qcc74x"
 rsource "pwm/Kconfig.qcc74x"
 rsource "reset/Kconfig.qcc74x"
 rsource "rtc/Kconfig.qcc74x"

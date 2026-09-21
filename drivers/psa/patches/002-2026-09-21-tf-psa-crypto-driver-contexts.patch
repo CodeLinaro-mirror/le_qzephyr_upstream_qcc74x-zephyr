@@ -1,0 +1,42 @@
+diff --git a/include/psa/crypto_driver_contexts_primitives.h b/include/psa/crypto_driver_contexts_primitives.h
+index baaa53d..92cdd1e 100644
+--- a/include/psa/crypto_driver_contexts_primitives.h
++++ b/include/psa/crypto_driver_contexts_primitives.h
+@@ -28,6 +28,15 @@
+ /* Include the context structure definitions for the Mbed TLS software drivers */
+ #include "mbedtls/private/crypto_builtin_primitives.h"
+ 
++#if defined(PSA_CRYPTO_DRIVER_QCC74X)
++#include "qcc74x_psa_driver_types.h"
++#endif
++
++#if defined(PSA_CRYPTO_DRIVER_QCC74X_HASH)
++/* Include the context structure definitions for the QCC74X direct LHAL driver */
++#include "qcc74x_psa_hash.h"
++#endif
++
+ /* Include the context structure definitions for those drivers that were
+  * declared during the autogeneration process. */
+ 
+@@ -112,6 +121,11 @@ typedef union {
+ #if defined(PSA_CRYPTO_DRIVER_TEST)
+     mbedtls_transparent_test_driver_hash_operation_t test_driver_ctx;
+ #endif
++
++#if defined(PSA_CRYPTO_DRIVER_QCC74X_HASH)
++    qcc74x_transparent_hash_operation_t qcc74x_hash_ctx;
++#endif
++
+ } psa_driver_hash_context_t;
+ 
+ typedef union {
+@@ -125,6 +139,9 @@ typedef union {
+ typedef union {
+     unsigned dummy; /* Make sure this union is always non-empty */
+     mbedtls_psa_cipher_operation_t mbedtls_ctx;
++#if defined(PSA_CRYPTO_DRIVER_QCC74X)
++    qcc74x_transparent_cipher_operation_t qcc74x_transparent_driver_ctx;
++#endif
+ #if defined(PSA_CRYPTO_DRIVER_TEST)
+     mbedtls_transparent_test_driver_cipher_operation_t transparent_test_driver_ctx;
+     mbedtls_opaque_test_driver_cipher_operation_t opaque_test_driver_ctx;
