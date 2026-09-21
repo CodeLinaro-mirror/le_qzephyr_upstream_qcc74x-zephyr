@@ -18,6 +18,7 @@
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15.h>
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15_diag.h>
 #include <zephyr/soc/qualcomm/qcc74x_ble_lowpower.h>
+#include <zephyr/soc/qualcomm/qcc74x_gpio_pds15.h>
 #include <zephyr/soc/qualcomm/qcc74x_wifi_lowpower.h>
 #include <zephyr/sys/util.h>
 
@@ -26,6 +27,7 @@
 #include "qcc74x_hbn.h"
 #include "qcc74x_pm.h"
 #include "qc7xx_lp.h"
+#include "pm_uart.h"
 
 #ifndef CONFIG_QCC74X_PM_PDS15_LOG_LEVEL
 #define CONFIG_QCC74X_PM_PDS15_LOG_LEVEL LOG_LEVEL_NONE
@@ -1308,6 +1310,9 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	uint64_t before_us;
 	uint64_t elapsed_us;
 	uint32_t wake_reason = 0U;
+	uint64_t gpio_wake_bits = 0U;
+	uint64_t gpio_wake_edge_bits = 0U;
+	int gpio_resume_rc;
 	int fw_rc;
 	int rc;
 	struct qcc74x_wifi_lowpower_session wifi_session = { 0 };
@@ -1378,6 +1383,26 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	pm_pds15_ctx.timeout_us = effective_timeout_us;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
+	/* System-managed device PM must have suspended every UART before LPFW
+	 * resets peripheral state. Do not attempt a manual UART recovery path. */
+	rc = qcc74x_pm_uart_check_suspended();
+	if (rc != 0) {
+		qcc74x_pm_pds15_auto_entry_skip_cleanup();
+		return rc;
+	}
+
+	rc = gpio_qc7xx_pds15_prepare();
+	if (rc != 0) {
+		qcc74x_pm_pds15_auto_entry_skip_cleanup();
+		if (rc == -EAGAIN) {
+			qcc74x_pm_diag_record_deep_skip(
+				QCC74X_PM_DEEP_SKIP_REASON_GPIO_BLOCKED);
+			return -EAGAIN;
+		}
+		QCC74X_PM_PDS15_LOG_ERR("qcc74x_pds15_prepare: GPIO wake config rc=%d", rc);
+		return rc;
+	}
+
 	/* BLE first: btble_controller_sleep(0) is a pure query (~200 µs).
 	 * If BLE is active, skip the expensive WiFi prepare/resume entirely.
 	 */
@@ -1441,6 +1466,12 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		qcc74x_ble_lowpower_crash_check(&ble_session, elapsed_us);
 		qcc74x_pm_pds15_update_rtc_epilogue(&cfg);
 		qcc74x_pm_pds15_timer_deep_sleep_rebase(elapsed_us);
+		gpio_resume_rc = gpio_qc7xx_pds15_resume(&gpio_wake_bits,
+							  &gpio_wake_edge_bits);
+		if (gpio_resume_rc != 0) {
+			QCC74X_PM_PDS15_LOG_ERR("qcc74x_pds15_resume: GPIO restore rc=%d",
+						 gpio_resume_rc);
+		}
 		if (wifi_session.resume_needed) {
 			qcc74x_wifi_lowpower_resume(&wifi_session, &cfg);
 		}
@@ -1452,7 +1483,8 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		pm_pds15_ctx.resume_cleanup_pending = true;
 		k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-		qcc74x_pm_diag_record_deep_result(0, elapsed_us, wake_reason, 0);
+		qcc74x_pm_diag_record_deep_result(0, elapsed_us, wake_reason,
+						  gpio_wake_bits, gpio_wake_edge_bits);
 		(void)qcc74x_pm_pds15_auto_expire_if_needed();
 		return 0;
 	}
@@ -1467,7 +1499,8 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	pm_pds15_ctx.timeout_us = 0U;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-	qcc74x_pm_diag_record_deep_result(fw_rc, elapsed_us, wake_reason, 0);
+	qcc74x_pm_diag_record_deep_result(fw_rc, elapsed_us, wake_reason,
+					  gpio_wake_bits, gpio_wake_edge_bits);
 
 	return fw_rc;
 }
@@ -1500,5 +1533,6 @@ void qcc74x_pm_pds15_resume_complete(uint8_t substate_id)
 
 	if (cleanup) {
 		QCC74X_PM_PDS15_LOG_DBG("qcc74x_pds15_resume: session complete");
+		gpio_qc7xx_pds15_dispatch_wake();
 	}
 }

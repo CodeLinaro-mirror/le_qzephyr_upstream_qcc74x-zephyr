@@ -166,7 +166,9 @@ static void ATTR_CLOCK_SECTION __attribute__((noinline)) system_clock_init_lp(vo
 static void __attribute__((noinline)) peripheral_clock_init_lp(void)
 {
     struct qc7xx_device_s *aes = qc7xx_device_get_by_name(QC7XX_NAME_SEC_AES);
+#ifdef CONFIG_QCC74X_SEC_PKA
     struct qc7xx_device_s *pka = qc7xx_device_get_by_name(QC7XX_NAME_SEC_PKA);
+#endif
     struct qc7xx_device_s *sha = qc7xx_device_get_by_name(QC7XX_NAME_SEC_SHA);
 
     /* Match Bouffalo SDK board_recovery() LP path. 
@@ -195,9 +197,11 @@ static void __attribute__((noinline)) peripheral_clock_init_lp(void)
         qc7xx_aes_link_init(aes);
     }
 
+#ifdef CONFIG_QCC74X_SEC_PKA
     if (pka != NULL) {
         qc7xx_pka_init(pka);
     }
+#endif
 
     if (sha != NULL) {
         qc7xx_group0_request_sha_access(sha);

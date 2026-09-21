@@ -116,14 +116,19 @@ void qcc74x_pm_diag_record_deep_skip(
 
 void qcc74x_pm_diag_record_deep_result(int rc, uint64_t elapsed_us,
 					 uint32_t wake_reason,
-					 int uart_resume_rc)
+					 uint64_t gpio_wake_bits,
+					 uint64_t gpio_wake_edge_bits)
 {
 	k_spinlock_key_t key = k_spin_lock(&diag_lock);
 
 	diag_stats.last_deep_return_code = rc;
 	diag_stats.last_deep_elapsed_us = elapsed_us;
 	diag_stats.last_wake_reason = wake_reason;
-	diag_stats.last_uart_resume_rc = uart_resume_rc;
+	diag_stats.last_gpio_wake_bits = gpio_wake_bits;
+	diag_stats.last_gpio_wake_edge_bits = gpio_wake_edge_bits;
+	if (gpio_wake_bits != 0U) {
+		diag_stats.gpio_wake_count++;
+	}
 	if (rc == 0) {
 		diag_stats.deep_resume_success++;
 	} else {
@@ -146,9 +151,9 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 		break;
 	case PM_STATE_SUSPEND_TO_RAM:
 #ifdef CONFIG_QCC74X_PM_PDS15
-		if (qcc74x_pm_pds15_enter(substate_id) == 0) {
-			break;
-		}
+		(void)qcc74x_pm_pds15_enter(substate_id);
+		/* Return to the manager for UART RESUME before unmasking IRQs. */
+		break;
 #endif
 		__asm__ volatile("fence iorw, iorw" ::: "memory");
 		arch_cpu_atomic_idle(MSTATUS_IEN);
