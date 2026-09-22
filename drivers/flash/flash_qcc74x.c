@@ -178,6 +178,21 @@ int flash_qcc74x_emergency_write(struct flash_qcc74x_emergency_session *session,
 	return result == 0 ? 0 : -EIO;
 }
 
+int flash_qcc74x_emergency_read(struct flash_qcc74x_emergency_session *session,
+				 off_t offset, void *buffer, size_t length)
+{
+	int result;
+
+	if (session == NULL || !session->locked || buffer == NULL || length == 0U ||
+	    offset < 0 || (size_t)offset > session->region.size ||
+	    length > session->region.size - (size_t)offset) {
+		return -EINVAL;
+	}
+
+	result = qc7xx_flash_read(session->region.offset + offset, buffer, length);
+	return result == 0 ? 0 : -EIO;
+}
+
 void flash_qcc74x_emergency_unlock(struct flash_qcc74x_emergency_session *session)
 {
 	struct flash_qcc74x_dev_data *data;

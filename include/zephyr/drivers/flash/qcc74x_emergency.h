@@ -34,6 +34,8 @@ int flash_qcc74x_emergency_try_lock(
 int flash_qcc74x_emergency_erase(struct flash_qcc74x_emergency_session *session);
 int flash_qcc74x_emergency_write(struct flash_qcc74x_emergency_session *session,
 				  off_t offset, const void *buffer, size_t length);
+int flash_qcc74x_emergency_read(struct flash_qcc74x_emergency_session *session,
+				 off_t offset, void *buffer, size_t length);
 void flash_qcc74x_emergency_unlock(struct flash_qcc74x_emergency_session *session);
 
 #ifdef __cplusplus
