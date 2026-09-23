@@ -56,17 +56,15 @@ macro(qcc74x_apply_patch patch_file)
     endif()
 endmacro()
 
-# Apply QCC74X PSA Crypto patches
-qcc74x_apply_patch(001-2026-09-21-tf-psa-crypto-driver-wrappers.patch)
-qcc74x_apply_patch(002-2026-09-21-tf-psa-crypto-driver-contexts.patch)
+qcc74x_apply_patch(0001-add-qcc74x-to-psa-crypto-driver-wrappers.patch)
+qcc74x_apply_patch(0002-add-qcc74x-context-to-crypto-driver-contexts-primitives.patch)
 
-# 2. Compile all source modules into one driver library
+# 2. Compile all source modules
+zephyr_sources(src/qcc74x_psa_init.c)
+zephyr_sources(src/qcc74x_psa_cipher.c)
+zephyr_sources(src/qcc74x_psa_entropy.c)
+
 zephyr_library()
-zephyr_library_sources(
-    src/qcc74x_psa_init.c
-    src/qcc74x_psa_cipher.c
-    src/qcc74x_psa_entropy.c
-)
 zephyr_library_sources_ifdef(
     CONFIG_PSA_CRYPTO_DRIVER_QCC74X_HASH
     qcc74x_psa_hash.c
