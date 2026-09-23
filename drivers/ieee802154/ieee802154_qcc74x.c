@@ -884,7 +884,7 @@ static int qcc74x_start(const struct device *dev)
 		return -ENODEV;
 	}
 
-	LOG_INF("start: enableRx (ch=%u)", data->channel);
+	LOG_DBG("start: enableRx (ch=%u)", data->channel);
 	atomic_inc(&data->stats.start);
 	lmac154_enableRx();
 
