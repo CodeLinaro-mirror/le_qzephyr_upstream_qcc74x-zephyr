@@ -37,6 +37,7 @@ zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_SYSTEM_TIMER
 )
 
 zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15
+  pm_uart.c
   pm_pds15_glue.c
   pm_pds15.c
   ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qcc74x_lp.c

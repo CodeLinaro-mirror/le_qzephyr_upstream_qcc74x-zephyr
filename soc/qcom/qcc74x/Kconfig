@@ -36,6 +36,12 @@ config SOC_SERIES_QCC74X
 
 if SOC_SERIES_QCC74X
 
+config QCC74X_SEC_PKA
+	bool "QCC74x public-key accelerator"
+	default n
+	help
+	  Enable the QCC74x security-engine PKA and its ECDSA/ECDH HAL API.
+
 config QCC74X_COREDUMP_FULL_MEMORY
 	bool "Dump QCC74x physical RAM and tracked PSRAM allocations"
 	depends on DEBUG_COREDUMP_MEMORY_DUMP_LINKER_RAM
@@ -186,20 +192,12 @@ config QCC74X_PM_PDS15_AUTO_INIT
 config QCC74X_PM_PDS15_POLICY
 	bool "Use the QCC74X automatic PDS15 PM policy"
 	depends on QCC74X_PM_PDS15 && PM_POLICY_CUSTOM
-	default n
+	default y
 	help
 	  Use a QCC74X-specific Zephyr PM policy that preserves the default
 	  residency, device-busy, and policy-lock behavior, but only selects
 	  PDS15 when the QCC74X automatic low-power gate and diagnostics say
 	  that suspend-to-ram substate 15 is currently allowed.
-
-config QCC74X_PM_PDS15_UART_RESUME
-	bool "Reinitialize the Zephyr console UART after PDS15 resume"
-	depends on QCC74X_PM_PDS15 && SERIAL
-	default y
-	help
-	  Reapply the console UART hardware configuration after returning from
-	  PDS15 so shell-based validation remains observable.
 
 config QCC74X_PM_PDS15_BLE
 	bool "Enable QCC74X PDS15 BLE controller low power"

@@ -15,6 +15,7 @@ extern "C" {
 
 #if defined(CONFIG_QCC74X_PM_PDS15_SYSTEM_TIMER)
 void qcc74x_pm_pds15_timer_post_wake_resume(void);
+/* IRQ-locked PM helpers only account time; the timer ISR dispatches it. */
 void qcc74x_pm_pds15_timer_flush_elapsed(void);
 void qcc74x_pm_pds15_timer_deep_sleep_rebase(uint64_t elapsed_us);
 #else

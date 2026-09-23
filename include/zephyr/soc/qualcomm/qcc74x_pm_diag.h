@@ -24,6 +24,7 @@ enum qcc74x_pm_deep_skip_reason {
 	QCC74X_PM_DEEP_SKIP_REASON_NO_WAKE_SOURCE = 5,
 	QCC74X_PM_DEEP_SKIP_REASON_WIFI_BLOCKED = 6,
 	QCC74X_PM_DEEP_SKIP_REASON_BLE_BLOCKED = 7,
+	QCC74X_PM_DEEP_SKIP_REASON_GPIO_BLOCKED = 8,
 	QCC74X_PM_DEEP_SKIP_REASON_COUNT,
 };
 
@@ -38,12 +39,14 @@ struct qcc74x_pm_diag_stats {
 	uint32_t deep_skip_reason_counts[QCC74X_PM_DEEP_SKIP_REASON_COUNT];
 	uint32_t deep_resume_success;
 	uint32_t deep_resume_failures;
+	uint32_t gpio_wake_count;
 	uint32_t last_state;
 	uint32_t last_substate;
 	uint32_t last_deep_skip_reason;
 	int32_t last_deep_return_code;
-	int32_t last_uart_resume_rc;
 	uint32_t last_wake_reason;
+	uint64_t last_gpio_wake_bits;
+	uint64_t last_gpio_wake_edge_bits;
 	uint64_t last_entry_cycle;
 	uint64_t last_exit_cycle;
 	uint64_t last_deep_requested_us;
@@ -58,7 +61,8 @@ void qcc74x_pm_diag_record_deep_skip(
 	enum qcc74x_pm_deep_skip_reason reason);
 void qcc74x_pm_diag_record_deep_result(int rc, uint64_t elapsed_us,
 					 uint32_t wake_reason,
-					 int uart_resume_rc);
+					 uint64_t gpio_wake_bits,
+					 uint64_t gpio_wake_edge_bits);
 #else
 static inline void qcc74x_pm_diag_get(struct qcc74x_pm_diag_stats *stats)
 {
@@ -82,14 +86,15 @@ static inline void qcc74x_pm_diag_record_deep_skip(
 	ARG_UNUSED(reason);
 }
 
-static inline void qcc74x_pm_diag_record_deep_result(int rc, uint64_t elapsed_us,
-						      uint32_t wake_reason,
-						      int uart_resume_rc)
+static inline void qcc74x_pm_diag_record_deep_result(
+	int rc, uint64_t elapsed_us, uint32_t wake_reason,
+	uint64_t gpio_wake_bits, uint64_t gpio_wake_edge_bits)
 {
 	ARG_UNUSED(rc);
 	ARG_UNUSED(elapsed_us);
 	ARG_UNUSED(wake_reason);
-	ARG_UNUSED(uart_resume_rc);
+	ARG_UNUSED(gpio_wake_bits);
+	ARG_UNUSED(gpio_wake_edge_bits);
 }
 #endif
 
