@@ -1,3 +1,6 @@
+/* Uncomment to enable verbose trace for debugging */
+/* #define CIPHER_TRACE */
+
 /*
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
@@ -23,7 +26,9 @@
 
 #include "../include/qcc74x_psa_cipher.h"
 #include <zephyr/kernel.h>
+#include <zephyr/cache.h>
 #include <string.h>
+#include <zephyr/sys/printk.h>
 
 #include "mbedtls/platform_util.h"
 #include "qc7xx_core.h"
@@ -175,6 +180,13 @@ static int aes_link_process(struct qc7xx_device_s *dev,
 
     op->link_first = 0;
 
+    /* Flush the link descriptor from CPU cache to physical memory
+     * so the AES DMA engine sees the latest data.
+     */
+    if (qc7xx_check_cache_addr(link)) {
+        sys_cache_data_flush_range(link, sizeof(*link));
+    }
+
     return qc7xx_aes_link_update(dev, (uint32_t)(uintptr_t)link,
                                  input, output, len);
 }
@@ -245,14 +257,13 @@ psa_status_t qcc74x_transparent_cipher_encrypt(
 
     k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
 
-    qc7xx_aes_init(dev);
-    qc7xx_aes_set_mode(dev, aes_mode);
-    qc7xx_aes_setkey(dev, key_buffer, (uint16_t)key_bits);
+
 
     const uint8_t *hw_iv = (iv_length > 0) ? iv : NULL;
+
     ret = qc7xx_aes_encrypt(dev, input, hw_iv, output, (uint32_t)input_length);
 
-    qc7xx_aes_deinit(dev);
+
     k_mutex_unlock(&qcc74x_psa_aes_mutex);
 
     if (ret != 0)
@@ -316,8 +327,10 @@ psa_status_t qcc74x_transparent_cipher_encrypt_setup(
     const uint8_t *key_buffer, size_t key_buffer_size,
     psa_algorithm_t alg)
 {
-    return cipher_setup(operation, attributes, key_buffer,
-                        key_buffer_size, alg, 1);
+    psa_status_t s = cipher_setup(operation, attributes, key_buffer,
+                                  key_buffer_size, alg, 1);
+
+    return s;
 }
 
 psa_status_t qcc74x_transparent_cipher_decrypt_setup(
@@ -342,6 +355,8 @@ psa_status_t qcc74x_transparent_cipher_set_iv(
     (void)operation; (void)iv; (void)iv_length;
     return PSA_ERROR_NOT_SUPPORTED;
 #else
+    printk("SET_IV: mode=%u ivlen=%zu\n", operation->aes_mode, iv_length);
+ 
     if (operation->aes_mode == AES_MODE_ECB) {
         if (iv_length != 0)
             return PSA_ERROR_INVALID_ARGUMENT;
@@ -382,27 +397,36 @@ psa_status_t qcc74x_transparent_cipher_update(
 
     *output_length = 0;
 
+  
+
     /* No complete block available — just buffer */
     if (out_blocks == 0) {
+        printk("UPDATE: buffer only\n");
         memcpy(operation->partial + operation->partial_len, input, input_length);
         operation->partial_len += input_length;
         return PSA_SUCCESS;
     }
 
-    if (output_size < out_needed)
+    if (output_size < out_needed) {
+        printk("UPDATE: output too small: need %zu have %zu\n", out_needed, output_size);
         return PSA_ERROR_BUFFER_TOO_SMALL;
+    }
 
     dev = qc7xx_device_get_by_name(QC7XX_NAME_SEC_AES);
-    if (!dev)
+    if (!dev) {
+        printk("UPDATE: no AES device\n");
         return PSA_ERROR_NOT_SUPPORTED;
+    }
 
     k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
+
 
     /*
      * Step A: Flush the partial buffer using register-based single-block ops.
      * The partial buffer lives in the operation struct (on stack/heap, not
      * necessarily in PSRAM), so we cannot use link-mode DMA for it.
      */
+
     if (operation->partial_len > 0) {
         size_t need = 16 - operation->partial_len;
         memcpy(operation->partial + operation->partial_len, in_ptr, need);
@@ -478,6 +502,17 @@ psa_status_t qcc74x_transparent_cipher_update(
             if (operation->link_first) {
                 qc7xx_aes_link_init(dev);
                 link_initialized = 1;
+            }
+
+            /* Flush input buffer from CPU cache to physical memory
+             * so the AES DMA engine reads the correct data.
+             */
+            if (qc7xx_check_cache_addr((const void *)in_ptr)) {
+                sys_cache_data_flush_range((void *)in_ptr, process_len);
+            }
+            /* Flush output buffer so DMA can write to it cleanly */
+            if (qc7xx_check_cache_addr((const void *)(output + out_pos))) {
+                sys_cache_data_flush_range(output + out_pos, process_len);
             }
 
             /* aes_link_process manages link_first internally */
