@@ -1,6 +1,9 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
+board_runner_args(qconn_flash "--chipname=qcc748")
+include(${CMAKE_CURRENT_LIST_DIR}/../common/qcc7xx.board.cmake)
+
 # Windows: replace gdb-py.exe with gdb.exe to fix Ctrl+C after 'continue'
 if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_GDB)
   get_filename_component(_gdb_dir  "${CMAKE_GDB}" DIRECTORY)
@@ -32,6 +35,3 @@ board_runner_args(openocd --gdb-init "mem 0x90000000 0x90020000 ro")
 board_runner_args(openocd --gdb-init "mem 0xA8000000 0xA8800000 rw")
 board_runner_args(openocd --gdb-init "mem 0xA0000000 0xA0400000 ro")
 include(${ZEPHYR_BASE}/boards/common/openocd.board.cmake)
-
-board_runner_args(qconn_flash "--chipname=qcc748")
-include(${CMAKE_CURRENT_LIST_DIR}/../common/qcc7xx.board.cmake)
