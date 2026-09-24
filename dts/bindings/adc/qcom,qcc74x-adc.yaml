@@ -14,6 +14,15 @@ properties:
     description: ADC clock division ratio.
       Possible values are 4, 8, 12, 16, 20, 24, 32.
 
+  vref-select:
+    type: int
+    default: 0
+    enum: [0, 1]
+    description: |
+      Internal reference voltage selection.
+        0 - 3.2 V (default)
+        1 - 2.0 V
+
   "#io-channel-cells":
     const: 1
 

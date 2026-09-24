@@ -377,7 +377,7 @@ static int adc_qcc74x_read(const struct device *dev, const struct adc_sequence *
 
 	if (seq->oversampling != 0U) {
 		LOG_ERR("Setting oversampling value is unsupported");
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
 	if (seq->resolution == 12) {
@@ -388,7 +388,7 @@ static int adc_qcc74x_read(const struct device *dev, const struct adc_sequence *
 		adc_conf->resolution = ADC_RESOLUTION_16B;
 	} else {
 		LOG_ERR("Unsupported resolution: %d", seq->resolution);
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
 	ret = adc_qcc74x_set_differential_mode(seq->channels, channel_cfgs,
@@ -499,12 +499,6 @@ static int adc_qcc74x_init(const struct device *dev)
 	return 0;
 }
 
-static DEVICE_API(adc, adc_qcc74x_api) = {
-	.channel_setup = adc_qcc74x_channel_setup,
-	.read = adc_qcc74x_read,
-	.ref_internal = 3200,
-};
-
 #if defined(CONFIG_ADC_QCC74X_DMA)
 #define ADC_QCC74X_CONF_DMA_INIT(inst)                                                               \
 	.dma_dev = (DEVICE_DT_GET(DT_INST_DMAS_CTLR_BY_IDX(inst, 0))),                             \
@@ -533,12 +527,19 @@ static DEVICE_API(adc, adc_qcc74x_api) = {
 				.clk_div = DT_PROP(DT_DRV_INST(inst), clk_div),                    \
 				.scan_conv_mode = 1,                                               \
 				.continuous_conv_mode = 1,                                         \
-				.vref = ADC_VREF_3P2V,                                             \
+				.vref = DT_INST_PROP_OR(inst, vref_select, ADC_VREF_3P2V),         \
 			},                                                                         \
+	};                                                                                         \
+                                                                                                   \
+	static DEVICE_API(adc, adc_qcc74x_api_##inst) = {                                              \
+		.channel_setup = adc_qcc74x_channel_setup,                                         \
+		.read = adc_qcc74x_read,                                                           \
+		.ref_internal = (DT_INST_PROP_OR(inst, vref_select, ADC_VREF_3P2V) ==              \
+				 ADC_VREF_2P0V) ? 2000U : 3200U,                                   \
 	};                                                                                         \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(inst, &adc_qcc74x_init, NULL, &adc_qcc74x_data_##inst,                   \
 			      &adc_qcc74x_conf_##inst, POST_KERNEL, CONFIG_ADC_INIT_PRIORITY,        \
-			      &adc_qcc74x_api);
+			      &adc_qcc74x_api_##inst);
 
 DT_INST_FOREACH_STATUS_OKAY(ADC_QCC74X_INIT)
