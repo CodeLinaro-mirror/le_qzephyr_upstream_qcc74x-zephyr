@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright (c) 2024 MASSDRIVER EI (massdriver.space)
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -93,7 +93,9 @@ struct udc_qcc74x_config {
  * Stores driver state that changes during operation.
  */
 struct udc_qcc74x_data {
-	bool ep_is_in[NUM_BIDIR_ENDPOINTS];
+	bool fifo_is_in[NUM_BIDIR_ENDPOINTS];
+	bool fifo_active[NUM_BIDIR_ENDPOINTS];
+	bool fifo_bidir[NUM_BIDIR_ENDPOINTS];
 	bool setup_received;
 	uint8_t setup[8];
 	k_timepoint_t reset_expiration;
@@ -188,15 +190,12 @@ static enum udc_bus_speed udc_qcc74x_device_speed(const struct device *const dev
  */
 static uint8_t udc_qcc74x_fifo_get_ep(const struct device *const dev, const uint8_t fifo)
 {
-	if (udc_qcc74x_device_speed(dev) == UDC_BUS_SPEED_FS) {
-		return fifo;
-	}
+	const struct udc_qcc74x_config *const cfg = dev->config;
+	const uint32_t fmap = sys_read32(cfg->base + USB_DEV_FMAP_OFFSET);
 
-	if (fifo < 2) {
-		return 1;
-	}
+	__ASSERT_NO_MSG(fifo > 0U && fifo < NUM_BIDIR_ENDPOINTS);
 
-	return 2;
+	return (fmap >> ((fifo - 1U) * USB_QCC7XX_FX_X_OFFSET)) & 0xFU;
 }
 
 /**
@@ -433,6 +432,10 @@ static void udc_qcc74x_vdma_startread(const struct device *const dev, const uint
 	const struct udc_qcc74x_config *const cfg = dev->config;
 	uint32_t tmp = 0U;
 
+	/* The buffer range is fully overwritten by DMA.  Discard stale CPU cache
+	 * lines before arming the controller without writing them back. */
+	sys_cache_data_invd_range(buf, len);
+
 	tmp = sys_read32(cfg->base + USB_VDMA_F0PS1_OFFSET +
 			 (fifo_idx - 1) * USB_QCC7XX_FX_X_OFFSET);
 	tmp &= ~USB_VDMA_LEN_CXF_MASK;
@@ -450,8 +453,6 @@ static void udc_qcc74x_vdma_startread(const struct device *const dev, const uint
 	tmp |= USB_VDMA_START_CXF;
 	sys_write32(tmp,
 		    cfg->base + USB_VDMA_F0PS1_OFFSET + (fifo_idx - 1) * USB_QCC7XX_FX_X_OFFSET);
-
-	sys_cache_data_flush_and_invd_range(buf, len);
 }
 
 /**
@@ -463,12 +464,14 @@ static void udc_qcc74x_vdma_startread(const struct device *const dev, const uint
  * @param len Number of bytes to transmit
  */
 static void udc_qcc74x_vdma_startwrite(const struct device *const dev, const uint8_t fifo_idx,
-				     uint8_t *data, const uint32_t len)
+					     uint8_t *data, const uint32_t len)
 {
 	const struct udc_qcc74x_config *const cfg = dev->config;
 	uint32_t tmp = 0U;
 
-	sys_cache_data_flush_and_invd_range(data, len);
+	/* The buffer is a DMA source; flushing is sufficient and avoids an
+	 * unnecessary invalidate on every bulk DMA chunk. */
+	sys_cache_data_flush_range(data, len);
 
 	tmp = sys_read32(cfg->base + USB_VDMA_F0PS1_OFFSET +
 			 (fifo_idx - 1) * USB_QCC7XX_FX_X_OFFSET);
@@ -502,6 +505,9 @@ static void udc_qcc74x_vdma_startread_ctrl(const struct device *const dev, uint8
 	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	uint32_t tmp = 0U;
 
+	/* The buffer range is fully overwritten by DMA. */
+	sys_cache_data_invd_range(buf, len);
+
 	tmp = sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET);
 	tmp &= ~USB_VDMA_LEN_CXF_MASK;
 	tmp &= ~USB_VDMA_IO_CXF;
@@ -511,13 +517,11 @@ static void udc_qcc74x_vdma_startread_ctrl(const struct device *const dev, uint8
 
 	sys_write32((uint32_t)buf, cfg->base + USB_VDMA_CXFPS2_OFFSET);
 
-	priv->ep_is_in[0] = false;
+	priv->fifo_is_in[0] = false;
 
 	tmp = sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET);
 	tmp |= USB_VDMA_START_CXF;
 	sys_write32(tmp, cfg->base + USB_VDMA_CXFPS1_OFFSET);
-
-	sys_cache_data_flush_and_invd_range(buf, len);
 }
 
 /**
@@ -545,7 +549,7 @@ static void udc_qcc74x_vdma_startwrite_ctrl(const struct device *const dev, uint
 
 	sys_write32((uint32_t)data, cfg->base + USB_VDMA_CXFPS2_OFFSET);
 
-	priv->ep_is_in[0] = true;
+	priv->fifo_is_in[0] = true;
 
 	tmp = sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET);
 	tmp |= USB_VDMA_START_CXF;
@@ -571,7 +575,47 @@ static uint8_t udc_qcc74x_ep_get_fifo(struct udc_ep_config *const ep_cfg)
 		}
 	}
 
-	return ep_idx;
+	if (ep_idx == 1U) {
+		if ((ep_cfg->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_INTERRUPT) {
+			return 2U;
+		}
+
+		/* Bulk endpoint 1 uses one FIFO per direction.  A shared BID FIFO
+		 * carries a single completion status bit and has to be turned
+		 * around between IN and OUT tokens, which caps sustained bulk
+		 * throughput. */
+		return USB_EP_DIR_IS_IN(ep_cfg->addr) ? 2U : 1U;
+	}
+	if (ep_idx == 2U &&
+	    (ep_cfg->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_BULK) {
+		return USB_EP_DIR_IS_IN(ep_cfg->addr) ? 4U : 3U;
+	}
+
+	return ep_idx + 1U;
+}
+
+static void udc_qcc74x_watch_opposite_token(const struct device *const dev,
+					    const uint8_t fifo_idx, const bool is_in)
+{
+	const struct udc_qcc74x_config *const cfg = dev->config;
+	const uint32_t out_int = 1U << ((fifo_idx - 1U) * 2U);
+	const uint32_t in_int = 1U << (15U + fifo_idx);
+	uint32_t mask = sys_read32(cfg->base + USB_DEV_MISG1_OFFSET);
+
+	mask |= out_int | in_int;
+	mask &= ~(is_in ? out_int : in_int);
+	sys_write32(mask, cfg->base + USB_DEV_MISG1_OFFSET);
+}
+
+static void udc_qcc74x_mask_fifo_tokens(const struct device *const dev, const uint8_t fifo_idx)
+{
+	const struct udc_qcc74x_config *const cfg = dev->config;
+	const uint32_t out_int = 1U << ((fifo_idx - 1U) * 2U);
+	const uint32_t in_int = 1U << (15U + fifo_idx);
+	uint32_t mask = sys_read32(cfg->base + USB_DEV_MISG1_OFFSET);
+
+	mask |= out_int | in_int;
+	sys_write32(mask, cfg->base + USB_DEV_MISG1_OFFSET);
 }
 
 static int udc_qcc74x_set_address(const struct device *const dev, const uint8_t addr)
@@ -691,9 +735,18 @@ static int udc_qcc74x_ctrl_evt_end(const struct device *const dev)
 		struct udc_ep_config *ep_cfg_out = udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT);
 		struct udc_ep_config *ep_cfg_in = udc_get_ep_cfg(dev, USB_CONTROL_EP_IN);
 
-		buf = udc_buf_get(ep_cfg_out);
+		buf = udc_buf_peek(ep_cfg_out);
 		if (buf != NULL) {
-			err = udc_submit_ep_event(dev, buf, 0);
+			struct udc_buf_info *bi = udc_get_buf_info(buf);
+			if (!bi->setup) {
+				buf = udc_buf_get(ep_cfg_out);
+				err = udc_submit_ep_event(dev, buf, 0);
+			} else {
+				buf = udc_buf_get(ep_cfg_in);
+				if (buf != NULL) {
+					err = udc_submit_ep_event(dev, buf, 0);
+				}
+			}
 		} else {
 			buf = udc_buf_get(ep_cfg_in);
 			if (buf != NULL) {
@@ -736,11 +789,12 @@ static void udc_qcc74x_ep_dout_start(const struct device *const dev,
 {
 	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	struct net_buf *buf = NULL;
-	uint8_t ep_idx = USB_EP_GET_IDX(ep_cfg->addr);
+	uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(ep_cfg);
+	uint32_t read_len;
 
 	LOG_DBG("Dout start ep 0x%02x", ep_cfg->addr);
 
-	if (priv->ep_is_in[ep_idx]) {
+	if (priv->fifo_is_in[fifo_idx]) {
 		LOG_ERR("Unexpected ep 0x%02x dout token", ep_cfg->addr);
 	}
 
@@ -749,8 +803,16 @@ static void udc_qcc74x_ep_dout_start(const struct device *const dev,
 		LOG_ERR("No buffer for OUT ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
 	} else {
-		priv->ep_is_in[ep_idx] = false;
-		udc_qcc74x_vdma_startread(dev, udc_qcc74x_ep_get_fifo(ep_cfg), buf->data, buf->size);
+		priv->fifo_is_in[fifo_idx] = false;
+		priv->fifo_active[fifo_idx] = true;
+		/* Arm up to two USB packets at a time.  A bulk host is allowed to send
+		 * a transfer whose length is an exact multiple of MPS without a ZLP.
+		 * A short packet or a full net_buf still completes the buffer. */
+		read_len = MIN(net_buf_tailroom(buf), ep_cfg->mps * 2U);
+		udc_qcc74x_vdma_startread(dev, fifo_idx, buf->data + buf->len, read_len);
+		if (priv->fifo_bidir[fifo_idx]) {
+			udc_qcc74x_watch_opposite_token(dev, fifo_idx, false);
+		}
 		if (priv->wa_reset_packet_count > 0) {
 			udc_qcc74x_ev_submit(dev, ep_cfg->addr, UBFQCC7XX_EVT_CHECK_EP,
 					   UBFQCC7XX_EVT_CHECK_EP_TIME(buf->size));
@@ -770,11 +832,11 @@ static void udc_qcc74x_ep_din_start(const struct device *const dev,
 {
 	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	struct net_buf *buf = NULL;
-	const uint8_t ep_idx = USB_EP_GET_IDX(ep_cfg->addr);
+	const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(ep_cfg);
 
 	LOG_DBG("Din start ep 0x%02x", ep_cfg->addr);
 
-	if (!priv->ep_is_in[ep_idx]) {
+	if (!priv->fifo_is_in[fifo_idx]) {
 		LOG_ERR("Unexpected ep 0x%02x din token", ep_cfg->addr);
 	}
 
@@ -783,8 +845,13 @@ static void udc_qcc74x_ep_din_start(const struct device *const dev,
 		LOG_ERR("No buffer for IN ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
 	} else {
-		priv->ep_is_in[ep_idx] = true;
-		udc_qcc74x_vdma_startwrite(dev, udc_qcc74x_ep_get_fifo(ep_cfg), buf->data, buf->len);
+		priv->fifo_is_in[fifo_idx] = true;
+		priv->fifo_active[fifo_idx] = true;
+		udc_qcc74x_vdma_startwrite(dev, fifo_idx, buf->data,
+					MIN(buf->len, ep_cfg->mps * 2U));
+		if (priv->fifo_bidir[fifo_idx]) {
+			udc_qcc74x_watch_opposite_token(dev, fifo_idx, true);
+		}
 		if (priv->wa_reset_packet_count > 0) {
 			udc_qcc74x_ev_submit(dev, ep_cfg->addr, UBFQCC7XX_EVT_CHECK_EP,
 					   UBFQCC7XX_EVT_CHECK_EP_TIME(buf->len));
@@ -805,7 +872,10 @@ static void udc_qcc74x_ep_din_start(const struct device *const dev,
  */
 static int udc_qcc74x_ep_evt_end(const struct device *const dev, struct udc_ep_config *const ep_cfg)
 {
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	struct net_buf *buf = NULL;
+	uint8_t *data = NULL;
+	uint32_t transfer_len = 0U;
 	uint32_t remain = 0U;
 
 	buf = udc_buf_get(ep_cfg);
@@ -815,12 +885,32 @@ static int udc_qcc74x_ep_evt_end(const struct device *const dev, struct udc_ep_c
 		return -ENODATA;
 	}
 	if (USB_EP_DIR_IS_OUT(ep_cfg->addr)) {
+		/* Use the same packet-batch length used when arming VDMA to convert
+		 * the remaining count into the number of bytes received. */
+		data = buf->data + buf->len;
+		transfer_len = MIN(net_buf_tailroom(buf), ep_cfg->mps * 2U);
 		remain = udc_qcc74x_ep_remain(dev, udc_qcc74x_ep_get_fifo(ep_cfg));
-		LOG_DBG("%u bytes transferred out of %u, %u bytes remaining", ep_cfg->mps - remain,
-			ep_cfg->mps, remain);
-		net_buf_add(buf, ep_cfg->mps - remain);
+		sys_cache_data_invd_range(data, transfer_len - remain);
+		LOG_DBG("%u bytes transferred out of %u, %u bytes remaining", transfer_len - remain,
+			transfer_len, remain);
+		net_buf_add(buf, transfer_len - remain);
+		if (remain == 0U && net_buf_tailroom(buf) > 0U) {
+			udc_buf_put(ep_cfg, buf);
+			udc_ep_set_busy(ep_cfg, true);
+			priv->fifo_active[udc_qcc74x_ep_get_fifo(ep_cfg)] = false;
+			udc_qcc74x_ep_dout_start(dev, ep_cfg);
+			return -EINPROGRESS;
+		}
 	} else {
-		net_buf_pull(buf, buf->len);
+		transfer_len = MIN(buf->len, ep_cfg->mps * 2U);
+		net_buf_pull(buf, transfer_len);
+		if (buf->len > 0U) {
+			udc_buf_put(ep_cfg, buf);
+			udc_ep_set_busy(ep_cfg, true);
+			priv->fifo_active[udc_qcc74x_ep_get_fifo(ep_cfg)] = false;
+			udc_qcc74x_ep_din_start(dev, ep_cfg);
+			return -EINPROGRESS;
+		}
 	}
 
 	return udc_submit_ep_event(dev, buf, 0);
@@ -838,9 +928,14 @@ static void udc_qcc74x_work_handler_xfer(const struct device *const dev,
 	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	const struct net_buf *buf = udc_buf_peek(ep_cfg);
 	const uint8_t ep_idx = USB_EP_GET_IDX(ep_cfg->addr);
+	const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(ep_cfg);
+	if (priv->fifo_active[fifo_idx]) {
+		udc_ep_set_busy(ep_cfg, true);
+		return;
+	}
 
 	if (USB_EP_DIR_IS_OUT(ep_cfg->addr)) {
-		priv->ep_is_in[ep_idx] = false;
+		priv->fifo_is_in[fifo_idx] = false;
 		udc_ep_set_busy(ep_cfg, true);
 		udc_qcc74x_ep_dout_start(dev, ep_cfg);
 	} else if (buf->len == 0) {
@@ -851,7 +946,7 @@ static void udc_qcc74x_work_handler_xfer(const struct device *const dev,
 		if (udc_get_buf_info(buf)->zlp) {
 			LOG_DBG("IN: ZLP");
 		}
-		priv->ep_is_in[ep_idx] = true;
+		priv->fifo_is_in[fifo_idx] = true;
 		udc_ep_set_busy(ep_cfg, true);
 		udc_qcc74x_ep_din_start(dev, ep_cfg);
 	}
@@ -867,13 +962,22 @@ static void udc_qcc74x_work_handler_check(const struct device *const dev,
 					struct udc_ep_config *const ep_cfg)
 {
 	const struct udc_qcc74x_config *const cfg = dev->config;
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	int err = 0;
 	uint32_t done =
 		sys_read32(cfg->base + USB_DEV_ISG3_OFFSET) & (1U << udc_qcc74x_ep_get_fifo(ep_cfg));
+	if (udc_ep_is_busy(ep_cfg) && done != 0U) {
+		const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(ep_cfg);
 
-	if (udc_ep_is_busy(ep_cfg)) {
-		err = udc_qcc74x_ep_evt_end(dev, ep_cfg);
+		priv->fifo_active[fifo_idx] = false;
+		if (priv->fifo_bidir[fifo_idx]) {
+			udc_qcc74x_watch_opposite_token(dev, fifo_idx,
+						USB_EP_DIR_IS_IN(ep_cfg->addr));
+		} else {
+			udc_qcc74x_mask_fifo_tokens(dev, fifo_idx);
+		}
 		udc_ep_set_busy(ep_cfg, false);
+		err = udc_qcc74x_ep_evt_end(dev, ep_cfg);
 		if (unlikely(err)) {
 			udc_submit_event(dev, UDC_EVT_ERROR, err);
 		}
@@ -908,8 +1012,11 @@ static void udc_qcc74x_work_handler(struct k_work *item)
 			break;
 		case UBFQCC7XX_EVT_END:
 			if (udc_ep_is_busy(ep_cfg)) {
-				err = udc_qcc74x_ep_evt_end(ev->dev, ep_cfg);
 				udc_ep_set_busy(ep_cfg, false);
+				err = udc_qcc74x_ep_evt_end(ev->dev, ep_cfg);
+				if (err == -EINPROGRESS) {
+					err = 0;
+				}
 			}
 			break;
 		case UBFQCC7XX_EVT_XFER:
@@ -990,8 +1097,12 @@ static int udc_qcc74x_ep_enqueue(const struct device *const dev, struct udc_ep_c
 
 	if (ep_idx == 0) {
 		if (USB_EP_DIR_IS_OUT(config->addr)) {
-			udc_buf_put(config, buf);
-			udc_qcc74x_ctrl_dout_start(dev, buf->size);
+			struct udc_buf_info *bi = udc_get_buf_info(buf);
+			if (bi->setup) {
+				udc_buf_put(config, buf);
+			} else {
+				udc_submit_ep_event(dev, buf, 0);
+			}
 		} else if (buf->len == 0) {
 			udc_qcc74x_ctrl_ack(dev);
 			udc_submit_ep_event(dev, buf, 0);
@@ -1026,11 +1137,11 @@ static int udc_qcc74x_ep_dequeue(const struct device *const dev, struct udc_ep_c
 static int udc_qcc74x_ep_enable(const struct device *const dev, struct udc_ep_config *const config)
 {
 	const struct udc_qcc74x_config *const cfg = dev->config;
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	const uint8_t ep_idx = USB_EP_GET_IDX(config->addr);
 	uint32_t tmp = 0U;
 
 	LOG_DBG("Enable ep 0x%02x", config->addr);
-
 	if (USB_EP_DIR_IS_OUT(config->addr)) {
 		udc_qcc74x_ep_set_out_mps(dev, ep_idx, config->mps);
 	} else {
@@ -1058,10 +1169,38 @@ static int udc_qcc74x_ep_enable(const struct device *const dev, struct udc_ep_co
 			udc_qcc74x_fifo_configure(dev, 4, config, 1, false);
 		}
 	} else {
-		udc_qcc74x_ep_setfifo(dev, ep_idx, ep_idx, USB_QCC7XX_EP_DIR_IN);
-		udc_qcc74x_ep_setfifo(dev, ep_idx, ep_idx, USB_QCC7XX_EP_DIR_OUT);
-		udc_qcc74x_fifo_setep(dev, ep_idx, ep_idx, USB_QCC7XX_FIFO_DIR_BID);
-		udc_qcc74x_fifo_configure(dev, ep_idx, config, 1, true);
+		const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(config);
+		uint8_t fifo_dir =
+			(ep_idx == 1U &&
+			 (config->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_INTERRUPT)
+				? USB_QCC7XX_FIFO_DIR_IN
+				: USB_QCC7XX_FIFO_DIR_BID;
+		uint8_t block_num = 1U;
+
+		if ((ep_idx == 1U || ep_idx == 2U) &&
+		    (config->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_BULK) {
+			/* Bulk data endpoints get one unidirectional FIFO each, so
+			 * IN and OUT have independent completion status and no FIFO
+			 * turnaround between tokens. */
+			fifo_dir = USB_EP_DIR_IS_IN(config->addr) ? USB_QCC7XX_FIFO_DIR_IN
+								  : USB_QCC7XX_FIFO_DIR_OUT;
+			if (USB_EP_DIR_IS_OUT(config->addr)) {
+				block_num = 3U;
+				/* Three blocks keep back-to-back high-speed OUT packet
+				 * batches flowing while software re-arms VDMA. */
+			}
+		}
+
+		if (fifo_idx >= NUM_BIDIR_ENDPOINTS) {
+			return -ENOTSUP;
+		}
+
+		udc_qcc74x_ep_setfifo(dev, ep_idx, fifo_idx,
+				       USB_EP_DIR_IS_IN(config->addr) ? USB_QCC7XX_EP_DIR_IN
+								     : USB_QCC7XX_EP_DIR_OUT);
+		udc_qcc74x_fifo_setep(dev, ep_idx, fifo_idx, fifo_dir);
+		udc_qcc74x_fifo_configure(dev, fifo_idx, config, block_num, true);
+		priv->fifo_bidir[fifo_idx] = fifo_dir == USB_QCC7XX_FIFO_DIR_BID;
 	}
 
 	tmp = sys_read32(cfg->base + USB_DEV_ADR_OFFSET);
@@ -1083,7 +1222,9 @@ static int udc_qcc74x_ep_disable(const struct device *const dev, struct udc_ep_c
 static int udc_qcc74x_ep_set_halt(const struct device *const dev, struct udc_ep_config *const config)
 {
 	const struct udc_qcc74x_config *const cfg = dev->config;
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	const uint8_t ep_idx = USB_EP_GET_IDX(config->addr);
+	const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(config);
 	uint32_t tmp = 0U;
 
 	LOG_DBG("Set halt ep 0x%02x", config->addr);
@@ -1093,6 +1234,9 @@ static int udc_qcc74x_ep_set_halt(const struct device *const dev, struct udc_ep_
 		tmp |= USB_CX_STL;
 		sys_write32(tmp, cfg->base + USB_DEV_CXCFE_OFFSET);
 	} else {
+		udc_qcc74x_fifo_reset(dev, fifo_idx);
+		priv->fifo_active[fifo_idx] = false;
+		sys_write32(1U << fifo_idx, cfg->base + USB_DEV_ISG3_OFFSET);
 		if (USB_EP_DIR_IS_OUT(config->addr)) {
 			tmp = sys_read32(cfg->base + USB_DEV_OUTMPS1_OFFSET +
 					 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
@@ -1116,7 +1260,9 @@ static int udc_qcc74x_ep_clear_halt(const struct device *const dev,
 				  struct udc_ep_config *const config)
 {
 	const struct udc_qcc74x_config *const cfg = dev->config;
+	struct udc_qcc74x_data *const priv = udc_get_private(dev);
 	const uint8_t ep_idx = USB_EP_GET_IDX(config->addr);
+	const uint8_t fifo_idx = udc_qcc74x_ep_get_fifo(config);
 	uint32_t tmp = 0U;
 
 	LOG_DBG("Clear halt ep 0x%02x", config->addr);
@@ -1126,16 +1272,27 @@ static int udc_qcc74x_ep_clear_halt(const struct device *const dev,
 		tmp &= ~USB_CX_STL;
 		sys_write32(tmp, cfg->base + USB_DEV_CXCFE_OFFSET);
 	} else {
+		udc_qcc74x_fifo_reset(dev, fifo_idx);
+		priv->fifo_active[fifo_idx] = false;
+		sys_write32(1U << fifo_idx, cfg->base + USB_DEV_ISG3_OFFSET);
 		if (USB_EP_DIR_IS_OUT(config->addr)) {
 			tmp = sys_read32(cfg->base + USB_DEV_OUTMPS1_OFFSET +
 					 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
 			tmp &= ~USB_STL_OEP1;
+			tmp |= USB_RSTG_OEP1;
+			sys_write32(tmp, cfg->base + USB_DEV_OUTMPS1_OFFSET +
+						 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
+			tmp &= ~USB_RSTG_OEP1;
 			sys_write32(tmp, cfg->base + USB_DEV_OUTMPS1_OFFSET +
 						 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
 		} else {
 			tmp = sys_read32(cfg->base + USB_DEV_INMPS1_OFFSET +
 					 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
 			tmp &= ~USB_STL_IEP1;
+			tmp |= USB_RSTG_IEP1;
+			sys_write32(tmp, cfg->base + USB_DEV_INMPS1_OFFSET +
+						 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
+			tmp &= ~USB_RSTG_IEP1;
 			sys_write32(tmp, cfg->base + USB_DEV_INMPS1_OFFSET +
 						 (ep_idx - 1) * USB_QCC7XX_XPS_X_OFFSET);
 		}
@@ -1227,11 +1384,11 @@ static int udc_qcc74x_enable(const struct device *const dev)
 	       USB_MCX_OUT_INT;
 	sys_write32(tmp, cfg->base + USB_DEV_MISG0_OFFSET);
 
-	/* Disable IRQs in group 1 (fifo interrupts) */
+	/* FIFO token interrupts are enabled per active transfer. */
 	sys_write32(0xFFFFFFFFU, cfg->base + USB_DEV_MISG1_OFFSET);
 
-	/* Enable some group 2 interrupts */
-	sys_write32(0xFFFFFFE0U, cfg->base + USB_DEV_MISG2_OFFSET);
+	/* Enable bus-state, sequence-error, and zero-length packet interrupts. */
+	sys_write32(0xFFFFFF80U, cfg->base + USB_DEV_MISG2_OFFSET);
 
 	/* Enable some group 3 interrupts (DMA completion interrupts) */
 	sys_write32(0xFFFFFFE0U, cfg->base + USB_DEV_MISG3_OFFSET);
@@ -1248,7 +1405,7 @@ static int udc_qcc74x_enable(const struct device *const dev)
 	sys_write32(tmp, cfg->base + USB_GLB_INT_OFFSET);
 
 	sys_write32(0xFFFFFFFFU, cfg->base + USB_DEV_EPMAP0_OFFSET);
-	sys_write32(0xFFU, cfg->base + USB_DEV_EPMAP0_OFFSET);
+	sys_write32(0xFFU, cfg->base + USB_DEV_EPMAP1_OFFSET);
 
 	for (uint8_t i = 1; i < cfg->num_of_eps; i++) {
 		udc_qcc74x_fifo_setep(dev, USB_QCC7XX_FIFO_EP_NONE, i, USB_QCC7XX_FIFO_DIR_OUT);
@@ -1480,9 +1637,11 @@ static int udc_qcc74x_driver_preinit(const struct device *const dev)
 
 	data->caps.rwup = true;
 	data->caps.mps0 = UDC_MPS0_64;
+	data->caps.addr_before_status = true;
 	if (cfg->speed_idx == UDC_BUS_SPEED_HS) {
 		data->caps.hs = true;
-		mps = 1024;
+		/* USB 2.0 high-speed bulk endpoints have a 512-byte MPS limit. */
+		mps = 512U;
 	}
 
 	for (int i = 0; i < cfg->num_of_eps; i++) {
@@ -1572,10 +1731,32 @@ static void udc_qcc74x_isr(const struct device *const dev)
 			/* Better to miss a setup than
 			 * have the memory leak this creates
 			 */
-			if (group_intstatus & USB_CX_SETUP_INT && !priv->setup_received) {
-				priv->ep_is_in[0] = false;
+			if (group_intstatus & USB_CX_SETUP_INT &&
+			    !priv->setup_received) {
+				uint32_t vdma_tmp;
+
+				priv->fifo_is_in[0] = false;
 				priv->setup_received = true;
-				udc_qcc74x_ctrl_setup_start(dev);
+				sys_cache_data_flush_and_invd_range(priv->setup, 8);
+				vdma_tmp = sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET);
+				vdma_tmp &= ~USB_VDMA_LEN_CXF_MASK;
+				vdma_tmp &= ~USB_VDMA_IO_CXF;
+				vdma_tmp &= ~USB_VDMA_TYPE_CXF;
+				vdma_tmp |= (8U << USB_VDMA_LEN_CXF_SHIFT);
+				sys_write32(vdma_tmp, cfg->base + USB_VDMA_CXFPS1_OFFSET);
+				sys_write32((uint32_t)priv->setup,
+					cfg->base + USB_VDMA_CXFPS2_OFFSET);
+				vdma_tmp = sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET);
+				vdma_tmp |= USB_VDMA_START_CXF;
+				sys_write32(vdma_tmp, cfg->base + USB_VDMA_CXFPS1_OFFSET);
+				while (sys_read32(cfg->base + USB_VDMA_CXFPS1_OFFSET) &
+				       USB_VDMA_START_CXF) {
+				}
+				sys_write32(USB_VDMA_CMPLT_CXF,
+					    cfg->base + USB_DEV_ISG3_OFFSET);
+				sys_cache_data_invd_range(priv->setup, 8);
+				udc_qcc74x_ev_submit(dev, USB_CONTROL_EP_OUT,
+					UBFQCC7XX_EVT_CTRL_END, K_NO_WAIT);
 			} else if (group_intstatus & USB_CX_SETUP_INT) {
 				LOG_ERR("Double Setup");
 			}
@@ -1591,8 +1772,32 @@ static void udc_qcc74x_isr(const struct device *const dev)
 		if (dev_intstatus & USB_INT_G1) {
 			group_intstatus = sys_read32(cfg->base + USB_DEV_ISG1_OFFSET);
 			group_intstatus &= ~sys_read32(cfg->base + USB_DEV_MISG1_OFFSET);
-
 			sys_write32(group_intstatus, cfg->base + USB_DEV_ISG1_OFFSET);
+
+			for (uint8_t i = 1U; i < cfg->num_of_eps; i++) {
+				const uint32_t out_int = 1U << ((i - 1U) * 2U);
+				const uint32_t in_int = 1U << (15U + i);
+				const uint8_t ep_idx = udc_qcc74x_fifo_get_ep(dev, i);
+				struct udc_ep_config *ep_cfg;
+
+				if (priv->fifo_bidir[i] && (group_intstatus & in_int) &&
+				    !priv->fifo_is_in[i]) {
+					ep_cfg = udc_get_ep_cfg(dev, USB_EP_DIR_IN | ep_idx);
+					if (ep_cfg != NULL && udc_ep_is_busy(ep_cfg) &&
+					    udc_buf_peek(ep_cfg) != NULL) {
+						udc_qcc74x_fifo_reset(dev, i);
+						udc_qcc74x_ep_din_start(dev, ep_cfg);
+					}
+				} else if (priv->fifo_bidir[i] && (group_intstatus & out_int) &&
+					   priv->fifo_is_in[i]) {
+					ep_cfg = udc_get_ep_cfg(dev, USB_EP_DIR_OUT | ep_idx);
+					if (ep_cfg != NULL && udc_ep_is_busy(ep_cfg) &&
+					    udc_buf_peek(ep_cfg) != NULL) {
+						udc_qcc74x_fifo_reset(dev, i);
+						udc_qcc74x_ep_dout_start(dev, ep_cfg);
+					}
+				}
+			}
 		}
 		if (dev_intstatus & USB_INT_G2) {
 			group_intstatus = sys_read32(cfg->base + USB_DEV_ISG2_OFFSET);
@@ -1619,6 +1824,25 @@ static void udc_qcc74x_isr(const struct device *const dev)
 				udc_submit_event(dev, UDC_EVT_RESUME, 0);
 			}
 
+			if (group_intstatus & USB_RX0BYTE_INT) {
+				uint32_t rxz = sys_read32(cfg->base + USB_DEV_RXZ_OFFSET);
+
+				sys_write32(rxz, cfg->base + USB_DEV_RXZ_OFFSET);
+				for (uint8_t ep_idx = 1U; ep_idx < cfg->num_of_eps; ep_idx++) {
+					if (rxz & (1U << (ep_idx - 1U))) {
+						struct udc_ep_config *ep_cfg =
+							udc_get_ep_cfg(dev, USB_EP_DIR_OUT | ep_idx);
+
+						if (ep_cfg != NULL && udc_ep_is_busy(ep_cfg)) {
+							priv->fifo_active[udc_qcc74x_ep_get_fifo(ep_cfg)] = false;
+							udc_qcc74x_ev_submit(dev, ep_cfg->addr,
+									   UBFQCC7XX_EVT_END, K_NO_WAIT);
+						}
+					}
+				}
+				sys_write32(USB_RX0BYTE_INT, cfg->base + USB_DEV_ISG2_OFFSET);
+			}
+
 			if (group_intstatus & USBRST_INT) {
 				sys_write32(USBRST_INT, cfg->base + USB_DEV_ISG2_OFFSET);
 
@@ -1626,6 +1850,18 @@ static void udc_qcc74x_isr(const struct device *const dev)
 				for (uint8_t i = 1; i < cfg->num_of_eps; i++) {
 					udc_qcc74x_fifo_reset(dev, i);
 				}
+
+				priv->setup_received = false;
+				memset(priv->fifo_is_in, 0, sizeof(priv->fifo_is_in));
+				memset(priv->fifo_active, 0, sizeof(priv->fifo_active));
+
+				tmp = sys_read32(cfg->base + USB_DEV_ADR_OFFSET);
+				tmp &= ~USB_AFT_CONF;
+				tmp &= ~USB_DEVADR_MASK;
+				sys_write32(tmp, cfg->base + USB_DEV_ADR_OFFSET);
+
+				sys_write32(0xFFFFFFFFU,
+					    cfg->base + USB_DEV_ISG3_OFFSET);
 
 				tmp = sys_read32(cfg->base + USB_DEV_SMT_OFFSET);
 				tmp &= ~USB_SOFMT_MASK;
@@ -1662,7 +1898,7 @@ static void udc_qcc74x_isr(const struct device *const dev)
 			sys_write32(group_intstatus, cfg->base + USB_DEV_ISG3_OFFSET);
 
 			if (group_intstatus & USB_VDMA_CMPLT_CXF) {
-				if (priv->ep_is_in[0]) {
+				if (priv->fifo_is_in[0]) {
 					udc_qcc74x_ev_submit(dev, USB_CONTROL_EP_IN,
 							   UBFQCC7XX_EVT_CTRL_END, K_NO_WAIT);
 					udc_qcc74x_ctrl_ack(dev);
@@ -1673,8 +1909,15 @@ static void udc_qcc74x_isr(const struct device *const dev)
 			}
 
 			for (uint8_t i = 1; i < cfg->num_of_eps; i++) {
-				if (group_intstatus & (1U << i)) {
-					if (priv->ep_is_in[udc_qcc74x_fifo_get_ep(dev, i)]) {
+				if ((group_intstatus & (1U << i)) && priv->fifo_active[i]) {
+					priv->fifo_active[i] = false;
+					if (priv->fifo_bidir[i]) {
+						udc_qcc74x_watch_opposite_token(dev, i,
+										priv->fifo_is_in[i]);
+					} else {
+						udc_qcc74x_mask_fifo_tokens(dev, i);
+					}
+					if (priv->fifo_is_in[i]) {
 						udc_qcc74x_ev_submit(
 							dev,
 							USB_EP_DIR_IN |
@@ -1746,7 +1989,7 @@ static const struct udc_api udc_qcc74x_api = {
 	};                                                                                         \
                                                                                                    \
 	static struct udc_qcc74x_data udc_priv_##n = {.setup_received = false,                       \
-						    .wa_reset_packet_count = 12};                  \
+							    .wa_reset_packet_count = 12};                  \
                                                                                                    \
 	static struct udc_data udc_data_##n = {                                                    \
 		.mutex = Z_MUTEX_INITIALIZER(udc_data_##n.mutex),                                  \
