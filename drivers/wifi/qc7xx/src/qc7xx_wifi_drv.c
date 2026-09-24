@@ -43,6 +43,8 @@
 #include "wifi_mgmr.h"
 #include "wifi_mgmr_pmk.h"
 #include "wireless_api.h"
+#include "wireless_config.h"
+#include "wl_api.h"
 #include <wifi_mgmr_ext.h>
 
 LOG_MODULE_REGISTER(qc7xx_wifi, CONFIG_WIFI_LOG_LEVEL);
@@ -1884,6 +1886,100 @@ static int qc7xx_wifi_get_version(const struct device *dev, struct wifi_version 
 	return 0;
 }
 
+static int8_t qc7xx_pwrlimits_max(const struct reg_power_limits_t *rule)
+{
+	const int8_t limits[] = {
+		rule->limits.b_dsss, rule->limits.b_cck, rule->limits.g,
+		rule->limits.n20, rule->limits.n40,
+		rule->limits.ax20, rule->limits.ax40,
+	};
+	int8_t max = limits[0];
+
+	for (size_t i = 1U; i < ARRAY_SIZE(limits); i++) {
+		max = MAX(max, limits[i]);
+	}
+
+	return max;
+}
+
+static int8_t qc7xx_wl_pwrlim_max(uint8_t ch)
+{
+	const struct wl_param_pwrlimit_t *lim;
+	int8_t max;
+
+	if (wl_cfg == NULL || ch == 0U || ch > NUM_WLAN_CHANNELS) {
+		return -1;
+	}
+
+	lim = &wl_cfg->param.pwrlim[ch - 1U];
+	if (!lim->en) {
+		return -1;
+	}
+
+	max = lim->b_dsss;
+	max = MAX(max, lim->b_cck);
+	max = MAX(max, lim->g);
+	max = MAX(max, lim->n20);
+	max = MAX(max, lim->n40);
+	max = MAX(max, lim->ax20);
+	max = MAX(max, lim->ax40);
+
+	return max;
+}
+
+/*
+ * Report the regulatory transmit power ceiling for one channel, in dBm.
+ *
+ * Preference order, most to least specific: the per-channel limits loaded from
+ * the RF TLV area of flash, the per-channel rules of the board regulatory
+ * database, then that database's per-domain ceiling. Returns 0 when none of
+ * them has an answer, which the caller reports as unknown.
+ */
+static uint8_t qc7xx_reg_max_power(const char *country, uint8_t ch)
+{
+	const struct reg_db_t *db = wireless_regdb_get();
+	const struct reg_domain_info_t *dom = NULL;
+	reg_domain_t domain = REG_DOMAIN_ROW;
+	int8_t max;
+
+	max = qc7xx_wl_pwrlim_max(ch);
+	if (max >= 0) {
+		return (uint8_t)max;
+	}
+
+	if (db == NULL) {
+		return 0U;
+	}
+
+	for (uint8_t i = 0U; i < db->num_country_maps; i++) {
+		if (db->country_reg_map[i].country_code[0] == country[0] &&
+		    db->country_reg_map[i].country_code[1] == country[1]) {
+			domain = db->country_reg_map[i].domain;
+			break;
+		}
+	}
+
+	for (uint8_t i = 0U; i < db->num_reg_domains; i++) {
+		if (db->reg_domains[i].domain == domain) {
+			dom = &db->reg_domains[i];
+			break;
+		}
+	}
+
+	if (dom == NULL) {
+		return 0U;
+	}
+
+	for (uint8_t i = 0U; i < dom->num_cpl_rules; i++) {
+		if (dom->cpl_rules[i].channel == ch) {
+			max = qc7xx_pwrlimits_max(&dom->cpl_rules[i]);
+			return max > 0 ? (uint8_t)max : 0U;
+		}
+	}
+
+	return dom->max_power > 0 ? (uint8_t)dom->max_power : 0U;
+}
+
 static int qc7xx_wifi_reg_domain(const struct device *dev, struct wifi_reg_domain *reg_domain)
 {
 	char country[3] = { 0 };
@@ -1923,15 +2019,15 @@ static int qc7xx_wifi_reg_domain(const struct device *dev, struct wifi_reg_domai
 	/*
 	 * The stack only exposes a channel count per band, not a per-channel
 	 * table, and every 2.4 GHz regulatory domain it knows about starts at
-	 * channel 1 and is contiguous. Per-channel power and DFS flags are not
-	 * retrievable, so they are reported as unknown (0 / false).
+	 * channel 1 and is contiguous. Passive-only and DFS do not apply to
+	 * 2.4 GHz, so they are always reported clear.
 	 */
 	for (uint8_t ch = 1U; ch <= c24; ch++) {
 		struct wifi_reg_chan_info *info = &reg_domain->chan_info[ch - 1U];
 
 		info->center_frequency = ch == 14U ? 2484U : 2407U + (ch * 5U);
 		info->supported = 1U;
-		info->max_power = 0U;
+		info->max_power = qc7xx_reg_max_power(country, ch);
 		info->passive_only = 0U;
 		info->dfs = 0U;
 	}
