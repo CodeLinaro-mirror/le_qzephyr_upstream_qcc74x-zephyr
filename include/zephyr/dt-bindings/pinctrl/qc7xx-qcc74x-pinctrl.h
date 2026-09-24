@@ -79,6 +79,21 @@
 #define UART1_TXD_GPIO29                                                                        \
 	QC7XX_PINMUX(29 | (GPIO_UART_FUNC_UART1_TXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
 		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_TXD_GPIO32                                                                        \
+	QC7XX_PINMUX(32 | (GPIO_UART_FUNC_UART1_TXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_TXD_GPIO23                                                                        \
+	QC7XX_PINMUX(23 | (GPIO_UART_FUNC_UART1_TXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_CTS_GPIO24                                                                        \
+	QC7XX_PINMUX(24 | (GPIO_UART_FUNC_UART1_CTS << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_RTS_GPIO25                                                                        \
+	QC7XX_PINMUX(25 | (GPIO_UART_FUNC_UART1_RTS << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
+#define UART1_RXD_GPIO26                                                                        \
+	QC7XX_PINMUX(26 | (GPIO_UART_FUNC_UART1_RXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
+		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
 #define UART1_RXD_GPIO30                                                                        \
 	QC7XX_PINMUX(30 | (GPIO_UART_FUNC_UART1_RXD << (QC7XX_PIN_UART_SIG_SHIFT - QC7XX_PIN_NUM_SHIFT)), \
 		       GPIO_FUNC_UART | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)

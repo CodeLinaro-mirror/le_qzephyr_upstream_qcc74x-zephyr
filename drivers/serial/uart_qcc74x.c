@@ -1692,8 +1692,15 @@ static void uart_qcc74x_async_configure_rx_timeout(const struct uart_qcc74x_conf
 						 struct uart_qcc74x_data *data, int32_t timeout_us)
 {
 	const uint32_t baudrate = data->current_cfg.baudrate;
-	const uint32_t single_bit_time_us = USEC_PER_SEC / baudrate;
-	uint32_t bits_before_timeout = timeout_us / single_bit_time_us;
+	uint64_t bits_before_timeout;
+
+	/*
+	 * Do not calculate the bit time first: integer microseconds round to
+	 * zero at 10 Mbps. Calculate the number of bit periods directly and
+	 * round up, so the result remains valid at the maximum supported baud.
+	 */
+	bits_before_timeout = ((uint64_t)(uint32_t)timeout_us * baudrate +
+				      USEC_PER_SEC - 1U) / USEC_PER_SEC;
 
 	/* Clamp to hardware limits (RTO register is 8-bit) */
 	if (bits_before_timeout > UINT8_MAX) {
@@ -1705,7 +1712,7 @@ static void uart_qcc74x_async_configure_rx_timeout(const struct uart_qcc74x_conf
 	/* Enable hardware RTO interrupt */
 	uart_qcc74x_rto_interrupt_control(config, data, true, bits_before_timeout);
 
-	LOG_DBG("RX timeout configured: HW=%u bits", bits_before_timeout);
+	LOG_DBG("RX timeout configured: HW=%u bits", (uint32_t)bits_before_timeout);
 }
 
 /**
@@ -1835,7 +1842,6 @@ static int uart_qcc74x_tx_abort_async(const struct device *dev)
 		LOG_WRN("No TX in progress to abort");
 		return -EINVAL;
 	}
-
 	/* Save original length before clearing state */
 	size_t tx_requested = data->async_tx.len;
 
@@ -1854,7 +1860,6 @@ static int uart_qcc74x_tx_abort_async(const struct device *dev)
 
 	/* Disable UART TX DMA */
 	qc7xx_uart_link_txdma(&data->hal_uart_cfg, false);
-
 	/* Cancel timeout */
 	k_work_cancel_delayable(&data->async_tx.timeout_work);
 
