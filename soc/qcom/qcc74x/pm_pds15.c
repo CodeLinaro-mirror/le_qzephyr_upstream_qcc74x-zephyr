@@ -621,7 +621,10 @@ qcc74x_pm_pds15_auto_diag_classify(
 		return QCC74X_PM_PDS15_AUTO_DIAG_REASON_RESUME_PENDING;
 	}
 
+	/* A radio-free image still uses LPFW for PDS, but has no Wi-Fi to prepare. */
 	if ((sample->wifi_reason != QCC74X_PM_PDS15_WIFI_DIAG_REASON_NONE) &&
+	    (sample->wifi_reason !=
+	     QCC74X_PM_PDS15_WIFI_DIAG_REASON_WIFI_DISABLED) &&
 	    (sample->wifi_reason != QCC74X_PM_PDS15_WIFI_DIAG_REASON_READY) &&
 	    (sample->wifi_reason !=
 	     QCC74X_PM_PDS15_WIFI_DIAG_REASON_NOT_CONNECTED)) {
