@@ -144,5 +144,7 @@
 };
 
 &wifi_antenna_diversity {
+	/* CQM744 DVK: GPIO30 drives the RF switch VC pin. */
+	select-gpios = <&gpio0 30 GPIO_ACTIVE_HIGH>;
 	status = "okay";
 };
