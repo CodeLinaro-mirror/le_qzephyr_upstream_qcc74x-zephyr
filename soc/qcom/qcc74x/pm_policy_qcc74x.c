@@ -13,7 +13,8 @@
 #include "pm_policy_qcc74x.h"
 #include "pm_uart.h"
 
-#define QCC74X_PM_POLICY_PDS15_SUBSTATE_ID 15U
+#include <zephyr/soc/qualcomm/qcc74x_pm_lpfw.h>
+#define QCC74X_PM_POLICY_PDS15_SUBSTATE_ID QCC74X_PM_LPFW_SUBSTATE_ID
 
 static atomic_t idle_after_reject;
 

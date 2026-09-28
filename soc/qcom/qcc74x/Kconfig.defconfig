@@ -56,12 +56,13 @@ config PSRAM_LENGTH
 	  length of the ram_psram memory region when CONFIG_PSRAM is enabled.
 
 config PSRAM_COPY_CODE
-	bool "Enable psram copy code for this SoC"
+	bool "Copy runtime code and constants to PSRAM"
+	depends on PSRAM && PSRAM_LENGTH != 0
 	default n
 	help
-	  Enable the psram copy-code linker path in soc/qcom/qcc74x/common.ld,
-	  which relocates selected code/data sections from flash to PSRAM at
-	  boot for faster execution.
+	  Copy ordinary code and constants from flash to PSRAM before entering
+	  the kernel. Reset and early copy code remain executable in flash;
+	  hardware-specific TCM sections retain their own placement.
 
 config PSRAM
 	bool "Enable psram for this SoC"
@@ -97,6 +98,12 @@ config XTAL_POWER_TYPE_ACTIVE
 
 config MAIN_STACK_SIZE
 	default 4096
+
+config IDLE_STACK_SIZE
+	default 2048 if QCC74X_PM_LPFW
+	help
+	  LPFW entry and device PM execute on the idle stack. The generic
+	  512-byte RISC-V default is insufficient for this call chain.
 
 config CACHE_MANAGEMENT
 	default y

@@ -160,12 +160,13 @@ class QconnFlashRunner(ZephyrBinaryRunner):
         config.set('partition1', 'filedir', partition_file)
         config.set('FW', 'filedir', self.cfg.bin_file)
 
-        with (tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete_on_close=False)) as tmp_cfg:
-            config.write(tmp_cfg)
-            tmp_cfg_path = tmp_cfg.name
+        # Close the file before QConn opens it, including on Windows.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_cfg_path = os.path.join(tmp_dir, 'flash.ini')
+            with open(tmp_cfg_path, 'w') as tmp_cfg:
+                config.write(tmp_cfg)
             self.logger.info(
                 f"Generated temporary flash config: {tmp_cfg_path}")
-            tmp_cfg.flush()
             cmd_flash = [self.qconn_flash_cmd,
                          '--interface', self.interface,
                          '--port', self.port,

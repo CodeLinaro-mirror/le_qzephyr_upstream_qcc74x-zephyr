@@ -70,7 +70,7 @@ struct gpio_qcc74x_data {
 	sys_slist_t callbacks;          /**< Callback list for the GPIO. */
 	sys_slist_t int_src_pin_list;   /**< Pins configured as interrupt sources. */
 	struct gpio_qcc74x_int_src int_src_nodes[GPIO_MAX_PINS_PER_PORT];
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	const struct device *dev;
 	gpio_port_pins_t wake_pins;
 	gpio_port_pins_t pending_wake_pins;
@@ -82,7 +82,7 @@ struct gpio_qcc74x_data {
 #endif
 };
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 static int gpio_qcc74x_port_get_raw(const struct device *dev, uint32_t *value);
 #define GPIO_QCC74X_PORT_COUNT 2U
 static const struct device *gpio_ports[GPIO_QCC74X_PORT_COUNT];
@@ -529,7 +529,7 @@ static int gpio_qcc74x_pin_interrupt_configure(const struct device *dev, const g
 	struct gpio_qcc74x_data *data = dev->data;
 	uint32_t tmp_val = 0U;
 	uint32_t gpio_pin_offset_addr = cfg->base_reg;
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	bool wake = (trig & GPIO_INT_WAKEUP) != 0U;
 	enum gpio_int_trig hw_trig = (enum gpio_int_trig)(trig & ~GPIO_INT_WAKEUP);
 	uint8_t trigger = SYNC_FALLING_EDGE_TRIG;
@@ -555,7 +555,7 @@ static int gpio_qcc74x_pin_interrupt_configure(const struct device *dev, const g
 	sys_write32(tmp_val, gpio_pin_offset_addr + (pin << 2));
 
 	gpio_qcc74x_port_interrupt_configure_mode(dev, pin, mode,
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 					      hw_trig
 #else
 					      trig
@@ -583,7 +583,7 @@ static int gpio_qcc74x_pin_interrupt_configure(const struct device *dev, const g
 		LOG_DBG("Pin interrupt disabled: pin=%u", pin);
 	}
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	data->pin_interrupt_configured[pin] = mode != GPIO_INT_MODE_DISABLED;
 	if (mode == GPIO_INT_MODE_DISABLED || !wake) {
 		data->wake_pins &= ~BIT(pin);
@@ -607,7 +607,7 @@ static int gpio_qcc74x_config(const struct device *dev, gpio_pin_t pin, gpio_fla
 	uint32_t tmp_val = 0U;
 	uint32_t gpio_pin_offset_addr = conf->base_reg;
 	uint32_t gpio_output_reg = 0U;
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	struct gpio_qcc74x_data *data = dev->data;
 	if (pin >= conf->ngpios) return -EINVAL;
 	if ((flags & GPIO_INPUT) && (data->wake_pins & BIT(pin)) &&
@@ -694,7 +694,7 @@ static int gpio_qcc74x_config(const struct device *dev, gpio_pin_t pin, gpio_fla
 	LOG_DBG("Configuration for pin: %d with flags: 0x%04x complete. REGVAL=0x%08x", pin, flags,
 		cfg);
 	irq_unlock(key);
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	data->pin_flags[pin] = flags;
 	data->pin_configured[pin] = true;
 	if (!(flags & GPIO_INPUT)) {
@@ -719,7 +719,7 @@ int gpio_qcc74x_init(const struct device *dev)
 
 	sys_slist_init(&data->int_src_pin_list);
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	data->dev = dev;
 	k_work_init(&data->wake_work, gpio_qcc74x_wake_work);
 	if (cfg->id < GPIO_QCC74X_PORT_COUNT) gpio_ports[cfg->id] = dev;

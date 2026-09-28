@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15_timer.h>
+#include <zephyr/soc/qualcomm/qcc74x_gpio_pds15.h>
 #include <zephyr/init.h>
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
@@ -18,7 +19,6 @@
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15.h>
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15_diag.h>
 #include <zephyr/soc/qualcomm/qcc74x_ble_lowpower.h>
-#include <zephyr/soc/qualcomm/qcc74x_gpio_pds15.h>
 #include <zephyr/soc/qualcomm/qcc74x_wifi_lowpower.h>
 #include <zephyr/sys/util.h>
 
@@ -28,6 +28,7 @@
 #include "qcc74x_pm.h"
 #include "qc7xx_lp.h"
 #include "pm_uart.h"
+#include "pm_policy_qcc74x.h"
 
 #ifndef CONFIG_QCC74X_PM_PDS15_LOG_LEVEL
 #define CONFIG_QCC74X_PM_PDS15_LOG_LEVEL LOG_LEVEL_NONE
@@ -90,7 +91,8 @@ struct qcc74x_pm_pds15_pre_entry_result {
 };
 
 #define QCC74X_PM_PDS15_FIRST_RTC_EPILOGUE_CNT 180ULL
-#define QCC74X_PM_PDS15_SUBSTATE_ID 15U
+#include <zephyr/soc/qualcomm/qcc74x_pm_lpfw.h>
+#define QCC74X_PM_PDS15_SUBSTATE_ID QCC74X_PM_LPFW_SUBSTATE_ID
 static uint64_t pm_pds15_rtc_epilogue_time_max_cnt;
 
 static uint64_t qcc74x_pm_pds15_rtc_count_get(void)
@@ -621,10 +623,8 @@ qcc74x_pm_pds15_auto_diag_classify(
 		return QCC74X_PM_PDS15_AUTO_DIAG_REASON_RESUME_PENDING;
 	}
 
-	/* A radio-free image still uses LPFW for PDS, but has no Wi-Fi to prepare. */
 	if ((sample->wifi_reason != QCC74X_PM_PDS15_WIFI_DIAG_REASON_NONE) &&
-	    (sample->wifi_reason !=
-	     QCC74X_PM_PDS15_WIFI_DIAG_REASON_WIFI_DISABLED) &&
+	    (sample->wifi_reason != QCC74X_PM_PDS15_WIFI_DIAG_REASON_WIFI_DISABLED) &&
 	    (sample->wifi_reason != QCC74X_PM_PDS15_WIFI_DIAG_REASON_READY) &&
 	    (sample->wifi_reason !=
 	     QCC74X_PM_PDS15_WIFI_DIAG_REASON_NOT_CONNECTED)) {
@@ -832,17 +832,16 @@ void qcc74x_pm_pds15_record_auto_reject(int32_t ticks)
 {
 	k_spinlock_key_t key;
 
-	if (!qcc74x_pm_pds15_auto_is_enabled()) {
-		return;
-	}
-
+	/* Also clear requests made through the official long-lived CPU unlock. */
 	key = k_spin_lock(&pm_pds15_ctx.lock);
 	pm_pds15_ctx.auto_entry_pending = false;
 	pm_pds15_ctx.auto_timeout_us = 0U;
 	pm_pds15_ctx.auto_entry_deadline_us = 0U;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-	qcc74x_pm_pds15_auto_diag_update(ticks, NULL, NULL);
+	if (qcc74x_pm_pds15_auto_is_enabled()) {
+		qcc74x_pm_pds15_auto_diag_update(ticks, NULL, NULL);
+	}
 }
 
 int qcc74x_pm_pds15_policy_lock_set(bool lock)
@@ -922,6 +921,7 @@ static void qcc74x_pm_pds15_auto_entry_skip_cleanup(void)
 	pm_pds15_ctx.timeout_us = 0U;
 
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
+	qcc74x_pm_policy_entry_rejected();
 }
 
 static int qcc74x_pm_pds15_calibrate_rc32k(void)
@@ -992,6 +992,13 @@ static int qcc74x_pm_pds15_init_once(void)
 	pm_pds15_ctx.init_in_progress = true;
 	pm_pds15_ctx.init_rc = -EINPROGRESS;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
+
+#ifdef CONFIG_QCC74X_PM_PDS1
+	if (!qcc74x_psram_retention_ready()) {
+		rc = -ENOTSUP;
+		goto out;
+	}
+#endif
 
 	/*
 	 * The vendor LPFW PDS15 flow assumes the RTC counter is already running
@@ -1315,7 +1322,7 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	uint32_t wake_reason = 0U;
 	uint64_t gpio_wake_bits = 0U;
 	uint64_t gpio_wake_edge_bits = 0U;
-	int gpio_resume_rc;
+	int gpio_resume_rc = 0;
 	int fw_rc;
 	int rc;
 	struct qcc74x_wifi_lowpower_session wifi_session = { 0 };
@@ -1367,6 +1374,7 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
 	if (!auto_entry) {
+		qcc74x_pm_policy_entry_rejected();
 		qcc74x_pm_diag_record_deep_skip(
 			QCC74X_PM_DEEP_SKIP_REASON_NOT_ARMED);
 		return -EAGAIN;
@@ -1386,8 +1394,6 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	pm_pds15_ctx.timeout_us = effective_timeout_us;
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 
-	/* System-managed device PM must have suspended every UART before LPFW
-	 * resets peripheral state. Do not attempt a manual UART recovery path. */
 	rc = qcc74x_pm_uart_check_suspended();
 	if (rc != 0) {
 		qcc74x_pm_pds15_auto_entry_skip_cleanup();
@@ -1402,7 +1408,9 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 				QCC74X_PM_DEEP_SKIP_REASON_GPIO_BLOCKED);
 			return -EAGAIN;
 		}
-		QCC74X_PM_PDS15_LOG_ERR("qcc74x_pds15_prepare: GPIO wake config rc=%d", rc);
+
+		QCC74X_PM_PDS15_LOG_ERR(
+			"qcc74x_pds15_prepare: GPIO wake config rc=%d", rc);
 		return rc;
 	}
 
@@ -1441,10 +1449,9 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	qcc74x_pm_diag_record_deep_prepare(effective_timeout_us);
 
 	/*
-	 * Tickless timeout insertion charges the current unannounced timer
-	 * elapsed time into new relative sleeps. Flush that pending front-edge
-	 * time before entering PDS15 so the wake-side rebase only needs to
-	 * announce the deep-sleep interval itself.
+	 * Preserve unannounced time across the MTIMER reset. Neither capture
+	 * nor rebase may dispatch callbacks while system-managed UARTs sleep;
+	 * the timer ISR announces after the PM core has restored devices.
 	 */
 	qcc74x_pm_pds15_timer_flush_elapsed();
 
@@ -1455,6 +1462,9 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 	k_spin_unlock(&pm_pds15_ctx.lock, key);
 	fw_rc = qc7xx_lp_fw_enter(&cfg);
 	elapsed_us = qc7xx_lp_get_virtual_us() - before_us;
+	if (fw_rc >= 0) {
+		qcc74x_pm_pds15_timer_deep_sleep_rebase(elapsed_us);
+	}
 	qcc74x_pm_pds15_log_lpfw_result(&cfg, fw_rc, elapsed_us);
 	if (fw_rc >= 0) {
 		wake_reason = (uint32_t)fw_rc;
@@ -1468,16 +1478,18 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		}
 		qcc74x_ble_lowpower_crash_check(&ble_session, elapsed_us);
 		qcc74x_pm_pds15_update_rtc_epilogue(&cfg);
-		qcc74x_pm_pds15_timer_deep_sleep_rebase(elapsed_us);
 		gpio_resume_rc = gpio_qc7xx_pds15_resume(&gpio_wake_bits,
 							  &gpio_wake_edge_bits);
 		if (gpio_resume_rc != 0) {
-			QCC74X_PM_PDS15_LOG_ERR("qcc74x_pds15_resume: GPIO restore rc=%d",
-						 gpio_resume_rc);
+			QCC74X_PM_PDS15_LOG_ERR(
+				"qcc74x_pds15_resume: GPIO restore rc=%d",
+				gpio_resume_rc);
 		}
 		if (wifi_session.resume_needed) {
 			qcc74x_wifi_lowpower_resume(&wifi_session, &cfg);
 		}
+
+
 		key = k_spin_lock(&pm_pds15_ctx.lock);
 		pm_pds15_ctx.enter_in_progress = false;
 		pm_pds15_ctx.auto_entry_pending = false;
@@ -1487,7 +1499,8 @@ int qcc74x_pm_pds15_enter(uint8_t substate_id)
 		k_spin_unlock(&pm_pds15_ctx.lock, key);
 
 		qcc74x_pm_diag_record_deep_result(0, elapsed_us, wake_reason,
-						  gpio_wake_bits, gpio_wake_edge_bits);
+						  gpio_wake_bits,
+						  gpio_wake_edge_bits);
 		(void)qcc74x_pm_pds15_auto_expire_if_needed();
 		return 0;
 	}

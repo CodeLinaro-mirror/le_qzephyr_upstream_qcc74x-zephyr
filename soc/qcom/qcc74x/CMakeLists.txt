@@ -13,6 +13,38 @@ zephyr_sources(
 )
 
 if(CONFIG_PM)
+  if(CONFIG_QCC74X_PM_LPFW)
+    # Keep kernel stacks in internal SRAM, independently of PSRAM code copying.
+    dt_chosen(main_ram PROPERTY "zephyr,sram")
+    dt_nodelabel(internal_ram NODELABEL "sram0" REQUIRED)
+    dt_node_has_status(internal_ram_enabled PATH "${internal_ram}" STATUS "okay")
+    if(NOT main_ram STREQUAL internal_ram OR NOT internal_ram_enabled)
+      message(FATAL_ERROR "QCC74x LPFW requires zephyr,sram to select enabled "
+        "internal sram0, not ${main_ram}.")
+    endif()
+    dt_nodelabel(psram_path NODELABEL "psram" REQUIRED)
+    dt_node_has_status(psram_enabled PATH "${psram_path}" STATUS "okay")
+    if(CONFIG_QCC74X_PM_PDS1)
+      if(NOT CONFIG_PSRAM OR NOT psram_enabled)
+        message(FATAL_ERROR "QCC74x PDS1 requires enabled PSRAM.")
+      endif()
+      dt_reg_size(psram_size PATH "${psram_path}")
+      dt_reg_addr(psram_base PATH "${psram_path}")
+      if(NOT psram_size EQUAL CONFIG_PSRAM_LENGTH OR
+         NOT (psram_size EQUAL 0x400000 OR psram_size EQUAL 0x800000 OR
+              psram_size EQUAL 0x1000000) OR NOT psram_base EQUAL 0xa8000000)
+        message(FATAL_ERROR "QCC74x PDS1 requires PSRAM at 0xa8000000 with "
+          "4, 8 or 16 MiB matching CONFIG_PSRAM_LENGTH; ${psram_path} has "
+          "base=${psram_base}, size=${psram_size}.")
+      endif()
+    elseif(CONFIG_PSRAM OR psram_enabled OR CONFIG_PSRAM_COPY_CODE)
+      message(FATAL_ERROR "QCC74x PDS15 requires PSRAM disabled in both Kconfig "
+        "and devicetree, without PSRAM code copying.")
+    endif()
+  endif()
+endif()
+
+if(CONFIG_PM)
   zephyr_sources(power.c)
 endif()
 
@@ -20,7 +52,7 @@ zephyr_sources_ifdef(CONFIG_POWEROFF poweroff.c)
 zephyr_sources_ifdef(CONFIG_ANTI_ROLLBACK anti_rollback.c)
 zephyr_sources_ifdef(CONFIG_QCC74X_COREDUMP_FULL_MEMORY coredump_memory_regions.c)
 
-if(CONFIG_POWEROFF OR CONFIG_QCC74X_PM_PDS15)
+if(CONFIG_POWEROFF OR CONFIG_QCC74X_PM_LPFW)
   zephyr_sources(
     ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qc7xx_hbn_system.c
     ${QC7XX_SDK_PATH}/drivers/lhal/src/qc7xx_acomp.c
@@ -35,7 +67,7 @@ zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_SYSTEM_TIMER
   pm_pds15_timer.c
 )
 
-zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15
+zephyr_sources_ifdef(CONFIG_QCC74X_PM_LPFW
   pm_uart.c
   pm_pds15_glue.c
   pm_pds15.c
@@ -48,21 +80,28 @@ set(LPFW_BIN
 set(LPFW_PATCH
   ${QC7XX_SDK_PATH}/tools/lpfw/patch_lpfw.py)
 
-if(CONFIG_QCC74X_PM_PDS15)
+if(CONFIG_QCC74X_PM_LPFW)
   if(NOT EXISTS "${LPFW_BIN}")
     message(FATAL_ERROR
       "Missing qcc74x LPFW blob: ${LPFW_BIN}. "
-      "Fetch it with 'west blobs fetch hal_qualcomm' or ensure "
+      "Run qapp/qcc74x/prop_blobs_fetch.py from the SDK root; ensure "
       "modules/hal/qcom/qcc74x/zephyr/blobs/qcc74x/bin/qcc74x_lp_fw.bin exists.")
   endif()
   if(NOT EXISTS "${LPFW_PATCH}")
     message(FATAL_ERROR "Missing LPFW patch tool: ${LPFW_PATCH}")
   endif()
   message(STATUS "QCC74X LPFW blob: ${LPFW_BIN}")
-  set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
-    COMMAND ${Python3_EXECUTABLE} ${LPFW_PATCH}
-      ${CMAKE_BINARY_DIR}/zephyr/${CONFIG_KERNEL_BIN_NAME}.bin
-      ${LPFW_BIN})
+  zephyr_blobs_verify(FILES ${LPFW_BIN} REQUIRED)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LPFW_BIN})
+  execute_process(COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/check_lpfw.py ${LPFW_BIN}
+    COMMAND_ERROR_IS_FATAL ANY)
+  if(CONFIG_BUILD_OUTPUT_BIN)
+    set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
+      COMMAND ${Python3_EXECUTABLE} ${LPFW_PATCH}
+        ${CMAKE_BINARY_DIR}/zephyr/${CONFIG_KERNEL_BIN_NAME}.bin
+        ${LPFW_BIN})
+  endif()
 endif()
 
 zephyr_include_directories(.)

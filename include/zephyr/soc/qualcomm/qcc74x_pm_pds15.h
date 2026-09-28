@@ -29,7 +29,7 @@ struct qcc74x_pm_pds15_status {
 	uint32_t cycle_count;
 };
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 int qcc74x_pm_pds15_init(void);
 int qcc74x_pm_pds15_policy_lock_set(bool lock);
 bool qcc74x_pm_pds15_policy_lock_is_active(void);

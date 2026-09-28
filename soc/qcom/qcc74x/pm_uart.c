@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include <zephyr/device.h>
+#include <zephyr/drivers/serial/uart_qc7xx.h>
 #include <zephyr/kernel.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
@@ -48,11 +49,18 @@ void qcc74x_pm_pds15_uart_diag_get(struct qcc74x_pm_uart_diag *status)
 
 	*status = (struct qcc74x_pm_uart_diag){0};
 	for (size_t n = 0; n < ARRAY_SIZE(uart_devices); n++) {
-		enum pm_device_state state;
+		struct uart_qc7xx_pm_stats stats;
 
-		if (pm_device_state_get(uart_devices[n], &state) == 0 &&
-		    state == PM_DEVICE_STATE_SUSPENDED) {
-			status->active = 1U;
+		uart_qc7xx_pm_stats_get(uart_devices[n], &stats);
+		status->suspends += stats.suspends;
+		status->resumes += stats.resumes;
+		status->rejected += stats.rejected;
+		status->retries += stats.retries;
+		status->failures += stats.failures;
+		status->active |= stats.suspended;
+		if (stats.last_rc != 0) {
+			status->last_rc = stats.last_rc;
+			status->last_device = uart_devices[n]->name;
 		}
 	}
 	irq_unlock(key);

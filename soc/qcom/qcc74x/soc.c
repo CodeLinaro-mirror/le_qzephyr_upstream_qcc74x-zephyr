@@ -3,18 +3,33 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <errno.h>
 #include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/dt-bindings/clock/qcc74x-clock.h>
 #include <zephyr/logging/log.h>
 #include "qc7xx_efuse.h"
+#include "qc7xx_ef_ctrl.h"
+#include "hardware/ef_data_reg.h"
 #include "qc7xx_gpio.h"
 #include "qcc74x_glb.h"
 #include "qcc74x_psram.h"
 #include "qcc74x_tzc_sec.h"
 #include "soc_mem.h"
+#include "soc.h"
 
 LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);
+
+#ifdef CONFIG_QCC74X_PM_PDS1
+static bool psram_retention_ready;
+
+bool qcc74x_psram_retention_ready(void)
+{
+	return psram_retention_ready;
+}
+#endif
 
 #ifdef CONFIG_PSRAM
 #define PSRAM_NODE DT_NODELABEL(psram)
@@ -30,6 +45,109 @@ static void qc7xx_init_psram_gpio(void)
 		qc7xx_gpio_init(gpio, (41 + i), GPIO_INPUT | GPIO_FLOAT | GPIO_SMT_EN | GPIO_DRV_0);
 	}
 }
+
+#ifdef CONFIG_QCC74X_PM_PDS1
+/* Called before the cold-boot PSRAM copy. */
+int ATTR_TCM_SECTION qcc74x_psram_check_config(void)
+{
+	uint32_t fuse;
+	uint8_t psram_info;
+	uint32_t size;
+	uint32_t ctrl;
+	uint32_t density;
+
+	/* Read the capacity field without running the process-corner test. */
+	qc7xx_ef_ctrl_read_direct(NULL, EF_DATA_EF_WIFI_MAC_HIGH_OFFSET,
+				 &fuse, 1, 1);
+	psram_info = (fuse >> 24) & 3U;
+	if (psram_info < 1U || psram_info > 3U) {
+		return -ENOTSUP;
+	}
+	size = 0x400000U << (psram_info - 1U);
+	if (size != CONFIG_PSRAM_LENGTH || size != DT_REG_SIZE(PSRAM_NODE)) {
+		return -EINVAL;
+	}
+	if (!QCC74X_PSRAM_INIT_DONE) {
+		return -EAGAIN;
+	}
+	ctrl = QC7XX_RD_REG(PSRAM_CTRL_BASE, PSRAM_CONFIGURE);
+	density = QC7XX_GET_REG_BITS_VAL(
+		QC7XX_RD_REG(PSRAM_CTRL_BASE, PSRAM_MANUAL_CONTROL2),
+		PSRAM_REG_ADDR_MASK);
+	if (QC7XX_GET_REG_BITS_VAL(ctrl, PSRAM_REG_VENDOR_SEL) !=
+		PSRAM_CTRL_VENDOR_WINBOND ||
+	    QC7XX_GET_REG_BITS_VAL(ctrl, PSRAM_REG_X16_MODE) !=
+		PSRAM_CTRL_X8_MODE ||
+	    density != (size / 0x100000U) - 1U) {
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void psram_retention_configure(uint8_t psram_info)
+{
+	/* Winbond x8 ID0 values from the BL616 board initializer. */
+	static const uint16_t ids[] = {0U, 0x005fU, 0x0c86U, 0x0c96U};
+	uint16_t id = 0;
+	uint16_t cr1 = 0;
+	uint32_t saved;
+	uint32_t pasr = UINT32_MAX;
+	uint32_t pasr_mask;
+	unsigned int key;
+	QC7XX_Err_Type rc;
+
+	psram_retention_ready = false;
+	if (psram_info < 1U || psram_info >= ARRAY_SIZE(ids) ||
+	    qcc74x_psram_check_config() != 0) {
+		LOG_ERR("PDS1 PSRAM mismatch: psram_info=%u length=0x%x",
+			psram_info, CONFIG_PSRAM_LENGTH);
+		return;
+	}
+	/* A PSRAM-resident ISR must not run while the controller is in manual mode. */
+	key = irq_lock();
+	rc = PSram_Ctrl_Winbond_Read_Reg(PSRAM0_ID, PSRAM_WINBOND_REG_ID0, &id);
+	irq_unlock(key);
+	if (rc != SUCCESS || id != ids[psram_info]) {
+		LOG_ERR("PDS1 PSRAM ID mismatch: got 0x%04x expected 0x%04x",
+			id, ids[psram_info]);
+		return;
+	}
+	/* Preserve Boot2's controller/CR0 settings; only change CR1 refresh. */
+	saved = QC7XX_RD_REG(PSRAM_CTRL_BASE, PSRAM_WINBOND_PSRAM_CONFIGURE);
+	PSRAM_Winbond_Cfg_Type cfg = {
+		.rst = DISABLE,
+		.clockType = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_MCLK_TYPE),
+		.inputPowerDownMode = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_IPD),
+		.hybridSleepMode = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_HYBRID_SLP),
+		.linear_dis = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_LINEAR_DIS),
+		.PASR = PSRAM_PARTIAL_REFRESH_FULL,
+		.disDeepPowerDownMode = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_DPD_DIS),
+		.fixedLatency = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_FIX_LATENCY),
+		.burstLen = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_BURST_LENGTH),
+		.burstType = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_HYBRID_EN),
+		.latency = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_LATENCY),
+		.driveStrength = QC7XX_GET_REG_BITS_VAL(saved, PSRAM_REG_WB_DRIVE_ST),
+	};
+
+	key = irq_lock();
+	psram_retention_ready =
+		PSram_Ctrl_Winbond_Write_Reg(PSRAM0_ID, PSRAM_WINBOND_REG_CR1,
+					    &cfg) == SUCCESS &&
+		PSram_Ctrl_Winbond_Read_Reg(PSRAM0_ID, PSRAM_WINBOND_REG_CR1, &cr1) == SUCCESS;
+	irq_unlock(key);
+	if (psram_retention_ready) {
+		/* The 8/16 MiB CR1[1:0] refresh interval is not part of PASR. */
+		pasr_mask = psram_info == 1U ? GENMASK(2, 0) : GENMASK(4, 2);
+		pasr = QC7XX_GET_REG_BITS_VAL(
+			QC7XX_RD_REG(PSRAM_CTRL_BASE, PSRAM_WINBOND_PSRAM_STATUS),
+			PSRAM_STS_WB_PASR);
+		psram_retention_ready = (cr1 & pasr_mask) == 0U && (pasr & pasr_mask) == 0U;
+	}
+	LOG_INF("PSRAM retention ready=%u size=%u MiB ID0=0x%04x CR1=0x%04x PASR=0x%x",
+		psram_retention_ready, CONFIG_PSRAM_LENGTH / 0x100000U,
+		id, cr1, pasr);
+}
+#endif
 
 static void psram_winbond_default_init(uint8_t psram_info)
 {
@@ -110,6 +228,46 @@ uint32_t board_psram_x8_init(uint8_t psram_info)
 	PSram_Ctrl_Winbond_Read_Reg(PSRAM0_ID, PSRAM_WINBOND_REG_ID0, &reg_read);
 	return reg_read;
 }
+
+static int soc_psram_init(void)
+{
+	qc7xx_efuse_device_info_type device_info = {0};
+
+	qc7xx_efuse_get_device_info(&device_info);
+	if (device_info.psram_info == 0) {
+		LOG_ERR("This chip has no psram, please disable CONFIG_PSRAM\r\n");
+		while (1) {
+		}
+	}
+
+	if (QCC74X_PSRAM_INIT_DONE == 0) {
+#ifdef CONFIG_PSRAM_COPY_CODE
+		/* start_load() has already copied this routine to PSRAM. Reconfiguring
+		 * the controller here would invalidate the executing image.
+		 */
+		LOG_ERR("PSRAM was not initialized before runtime code copy\r\n");
+		while (1) {
+		}
+#else
+		printf("psram init\r\n");
+		board_psram_x8_init(device_info.psram_info);
+		Tzc_Sec_PSRAMB_Access_Release();
+#endif
+	} else {
+		printf("psram already init\r\n");
+	}
+
+#ifdef CONFIG_QCC74X_PM_PDS1
+	psram_retention_configure(device_info.psram_info);
+	if (!psram_retention_ready) {
+		/* Stop before any allocator can publish invalid external memory. */
+		k_panic();
+	}
+#endif
+	return 0;
+}
+
+SYS_INIT(soc_psram_init, PRE_KERNEL_1, 0);
 #endif
 
 const char *hal_driver_version(const char ***ctx)
@@ -159,6 +317,13 @@ void soc_late_init_hook(void)
 		printf("psram already init\r\n");
 	}
 
+#ifdef CONFIG_QCC74X_PM_PDS1
+	psram_retention_configure(device_info.psram_info);
+	if (!psram_retention_ready) {
+		/* Never publish a heap before validating PSRAM access. */
+		return;
+	}
+#endif
 	soc_multi_heap_psram_add();
 #endif
 }

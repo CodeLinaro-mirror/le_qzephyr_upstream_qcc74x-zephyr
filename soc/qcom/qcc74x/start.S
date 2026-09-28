@@ -29,8 +29,12 @@ __qc7xx_start:
     j .
 1:
 
-    /* mtvec: for all exceptions and non-vector mode IRQs */
+    /* PSRAM is not executable until start_load() finishes the runtime copy. */
+#ifdef CONFIG_PSRAM_COPY_CODE
+    la      a0, __qc7xx_early_trap
+#else
     la      a0, _isr_wrapper
+#endif
     ori     a0, a0, 3
     csrw    mtvec, a0
 #ifdef CONFIG_IRQ_USE_VECTOR
@@ -67,9 +71,26 @@ __qc7xx_start:
     /* start load code to itcm like. */
     call     start_load
 
+#ifdef CONFIG_PSRAM_COPY_CODE
+    /* Runtime code is now copied, including the CLIC exception entry. */
+    fence.i
+    la      a0, _isr_wrapper
+    ori     a0, a0, 3
+    csrw    mtvec, a0
+#endif
+
     call     System_Post_Init
 
     call     z_cstart
 
 __exit:
     j      __exit
+
+#ifdef CONFIG_PSRAM_COPY_CODE
+    /* No kernel or PSRAM state may be used before start_load() completes. */
+    .balign 64
+__qc7xx_early_trap:
+    csrci   mstatus, 8
+1:
+    j       1b
+#endif

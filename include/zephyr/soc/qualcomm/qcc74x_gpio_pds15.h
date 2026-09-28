@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 /* Internal bridge between the QCC74x GPIO driver and PDS15 backend. */
-#if defined(CONFIG_QCC74X_PM_PDS15) && defined(CONFIG_GPIO_QCC74X)
+#if defined(CONFIG_QCC74X_PM_LPFW) && defined(CONFIG_GPIO_QCC74X)
 /* Check SoC ownership conflicts before changing a candidate wake pin. */
 int gpio_qc7xx_pds15_wake_pin_validate(uint32_t io_pin);
 /* Read-only admission check; does not arm wake hardware or consume status. */
