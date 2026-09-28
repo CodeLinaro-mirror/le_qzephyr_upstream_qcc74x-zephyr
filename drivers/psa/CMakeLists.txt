@@ -15,6 +15,8 @@
 #
 #    Patch 0001: Add QCC74X dispatch table entries to psa_crypto_driver_wrappers.h
 #    Patch 0002: Add QCC74X context member to psa_driver_cipher_context_t union
+#    Patch 0003: Convert local arrays to static globals in tf-psa-crypto/core/psa_crypto.c
+#               to prevent stack overflow when ITS uses AES-GCM transform.
 #
 #    Patches are only applied once; repeated builds will see "already applied"
 #    from git apply --check and skip without error.
@@ -58,6 +60,7 @@ endmacro()
 
 qcc74x_apply_patch(0001-add-qcc74x-to-psa-crypto-driver-wrappers.patch)
 qcc74x_apply_patch(0002-add-qcc74x-context-to-crypto-driver-contexts-primitives.patch)
+qcc74x_apply_patch(0003-secure-storage-convert-local-arrays-to-static.patch)
 
 # 2. Compile all source modules
 zephyr_sources(src/qcc74x_psa_init.c)
