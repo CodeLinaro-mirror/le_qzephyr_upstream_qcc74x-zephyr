@@ -17,7 +17,6 @@ if(CONFIG_PM)
 endif()
 
 zephyr_sources_ifdef(CONFIG_POWEROFF poweroff.c)
-zephyr_sources_ifdef(CONFIG_QCC74X_HBN_SHELL hbn_shell.c)
 zephyr_sources_ifdef(CONFIG_ANTI_ROLLBACK anti_rollback.c)
 zephyr_sources_ifdef(CONFIG_QCC74X_COREDUMP_FULL_MEMORY coredump_memory_regions.c)
 
