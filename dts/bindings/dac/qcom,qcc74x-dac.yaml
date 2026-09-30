@@ -1,6 +1,9 @@
+# Copyright (c) 2022 Espressif Systems (Shanghai) Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+#
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
-
+# Not a contribution.
 description: |
     Qualcomm Opal family DAC controller.
     Two GPIO pads are capable of being DACs
