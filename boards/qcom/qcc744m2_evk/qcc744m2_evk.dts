@@ -7,7 +7,7 @@
 
 #include <qcom/qcc74x/qcc744.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
-#include "qcc744m_evk-pinctrl.dtsi"
+#include "qcc744m2_evk-pinctrl.dtsi"
 
 / {
 	model = "QCC744M Evaluation Kit";
