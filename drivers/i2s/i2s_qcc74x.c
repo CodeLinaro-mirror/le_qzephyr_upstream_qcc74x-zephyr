@@ -53,12 +53,15 @@ struct i2s_qcc74x_cfg {
 	const uint8_t diclk;
 	const uint8_t doclk;
 	const uint8_t div;
+	bool slave_mode; /* from DTS slave-mode property, default false (master) */
 };
 
 struct i2s_qcc74x_data {
 	struct qc7xx_device_s i2s_dev;
 	struct i2s_qcc74x_stream tx;
 	struct i2s_qcc74x_stream rx;
+	char tx_queue_buffer[CONFIG_I2S_QCC74X_TX_BLOCK_COUNT * sizeof(struct i2s_qcc74x_queue_item)];
+	char rx_queue_buffer[CONFIG_I2S_QCC74X_RX_BLOCK_COUNT * sizeof(struct i2s_qcc74x_queue_item)];
 };
 
 #if defined(CONFIG_DCACHE_LINE_SIZE) && (CONFIG_DCACHE_LINE_SIZE > 0)
@@ -167,8 +170,8 @@ static int i2s_qcc74x_stream_tx_dma_kickoff(struct i2s_qcc74x_data *dev_data,
 		return -EIO;
 	}
 
-	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE,
-				  I2S_CMD_DATA_ENABLE_TX | I2S_CMD_DATA_ENABLE_RX);
+	/* Enable TX data path only */
+	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_ENABLE_TX);
 
 	return 0;
 }
@@ -176,12 +179,21 @@ static int i2s_qcc74x_stream_tx_dma_kickoff(struct i2s_qcc74x_data *dev_data,
 static int i2s_qcc74x_stream_tx_start_hw_sequence(struct i2s_qcc74x_data *dev_data,
 						struct i2s_qcc74x_stream *stream_tx)
 {
-	uint32_t ws_regval = getreg32(dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
+	bool is_slave = (stream_tx->i2s_cfg.options & I2S_OPT_BIT_CLK_TARGET) != 0;
 
-	ws_regval &= ~I2S_CR_I2S_M_EN;
-	putreg32(ws_regval, dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
-	ws_regval |= I2S_CR_I2S_M_EN;
-	putreg32(ws_regval, dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
+	if (!is_slave) {
+		/* MASTER mode: reset WS frame counter with M_EN toggle pulse */
+		uint32_t ws_regval = getreg32(dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
+
+		ws_regval &= ~I2S_CR_I2S_M_EN;
+		putreg32(ws_regval, dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
+		ws_regval |= I2S_CR_I2S_M_EN;
+		putreg32(ws_regval, dev_data->i2s_dev.reg_base + I2S_CONFIG_OFFSET);
+		LOG_DBG("TX HW start: M_EN reset pulse done, CONFIG_REG=0x%08x", ws_regval);
+	} else {
+		/* SLAVE mode: external master provides clock, no M_EN toggle needed */
+		LOG_DBG("TX HW start: SLAVE mode, skipping M_EN reset pulse");
+	}
 
 	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_CLEAR_TX_FIFO, 0);
 	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_CLEAR_RX_FIFO, 0);
@@ -252,6 +264,8 @@ static void i2s_qcc74x_stream_tx_cb(const struct device *dma_dev, void *user_dat
 	/* I2S TX stopping, exit */
 	if (stream_tx->state == I2S_STATE_STOPPING && stream_tx->drain_flag == false) {
 		stream_tx->state = I2S_STATE_READY;
+		qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_TX);
+		qc7xx_i2s_deinit(&dev_data->i2s_dev);
 		LOG_DBG("TX stop done");
 		return;
 	}
@@ -264,6 +278,8 @@ static void i2s_qcc74x_stream_tx_cb(const struct device *dma_dev, void *user_dat
 			stream_tx->drain_flag = false;
 			stream_tx->tx_waiting_refill = false;
 			stream_tx->tx_refill_deadline = 0;
+			qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_TX);
+			qc7xx_i2s_deinit(&dev_data->i2s_dev);
 			LOG_DBG("TX drain done");
 			return;
 		}
@@ -408,6 +424,7 @@ static void i2s_qcc74x_stream_rx_cb(const struct device *dma_dev, void *user_dat
 		stream_rx->current_item.mem_block = NULL;
 		stream_rx->current_item.size = 0;
 		stream_rx->state = I2S_STATE_READY;
+		qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_RX);
 		LOG_DBG("RX stop done");
 		return;
 	}
@@ -533,6 +550,8 @@ static int i2s_qcc74x_stream_rx_start(const struct device *dev)
 		return -EIO;
 	}
 
+	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_ENABLE_RX);
+
 	return 0;
 }
 
@@ -619,21 +638,13 @@ static int i2s_qcc74x_init(const struct device *dev)
 		return -EIO;
 	}
 
-	LOG_DBG("Allocate TX queue");
-	ret = k_msgq_alloc_init(&dev_data->tx.queue, sizeof(struct i2s_qcc74x_queue_item),
-				CONFIG_I2S_QCC74X_TX_BLOCK_COUNT);
-	if (ret < 0) {
-		LOG_ERR("TX queue alloc failed, ret: %d", ret);
-		return ret;
-	}
+	LOG_DBG("Initialize TX queue");
+	k_msgq_init(&dev_data->tx.queue, dev_data->tx_queue_buffer,
+		    sizeof(struct i2s_qcc74x_queue_item), CONFIG_I2S_QCC74X_TX_BLOCK_COUNT);
 
-	LOG_DBG("Allocate RX queue");
-	ret = k_msgq_alloc_init(&dev_data->rx.queue, sizeof(struct i2s_qcc74x_queue_item),
-				CONFIG_I2S_QCC74X_RX_BLOCK_COUNT);
-	if (ret < 0) {
-		LOG_ERR("TX queue alloc failed, ret: %d", ret);
-		return ret;
-	}
+	LOG_DBG("Initialize RX queue");
+	k_msgq_init(&dev_data->rx.queue, dev_data->rx_queue_buffer,
+		    sizeof(struct i2s_qcc74x_queue_item), CONFIG_I2S_QCC74X_RX_BLOCK_COUNT);
 
 	ret = pinctrl_apply_state(dev_cfg->pcfg, PINCTRL_STATE_DEFAULT);
 	if (ret < 0) {
@@ -667,6 +678,21 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 			i2s_qcc74x_stream_drop(stream_tx);
 			stream_tx->state = I2S_STATE_READY;
 		}
+		/* Implicitly recover from STOPPING state so configure can proceed */
+		if (stream_tx->state == I2S_STATE_STOPPING) {
+			dma_stop(stream_tx->dma_dev, stream_tx->dma_channel);
+			if (stream_tx->current_item.mem_block != NULL) {
+				k_mem_slab_free(stream_tx->i2s_cfg.mem_slab,
+						stream_tx->current_item.mem_block);
+				stream_tx->current_item.mem_block = NULL;
+				stream_tx->current_item.size = 0;
+			}
+			i2s_qcc74x_stream_drop(stream_tx);
+			stream_tx->state = I2S_STATE_READY;
+			stream_tx->tx_waiting_refill = false;
+			stream_tx->tx_refill_deadline = 0;
+			LOG_DBG("TX recovered from STOPPING state");
+		}
 		if (stream_tx->state != I2S_STATE_NOT_READY &&
 		    stream_tx->state != I2S_STATE_READY) {
 			LOG_ERR("Invalid TX state: %d", (int)stream_tx->state);
@@ -679,6 +705,8 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 		stream_tx->i2s_cfg = *i2s_cfg;
 		stream_tx->tx_waiting_refill = false;
 		stream_tx->tx_refill_deadline = 0;
+		/* Drop any leftover items from previous run */
+		i2s_qcc74x_stream_drop(stream_tx);
 	}
 
 	/* RX */
@@ -695,6 +723,19 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 			i2s_qcc74x_stream_drop(stream_rx);
 			stream_rx->state = I2S_STATE_READY;
 		}
+		/* Implicitly recover from STOPPING state so configure can proceed */
+		if (stream_rx->state == I2S_STATE_STOPPING) {
+			dma_stop(stream_rx->dma_dev, stream_rx->dma_channel);
+			if (stream_rx->current_item.mem_block != NULL) {
+				k_mem_slab_free(stream_rx->i2s_cfg.mem_slab,
+						stream_rx->current_item.mem_block);
+				stream_rx->current_item.mem_block = NULL;
+				stream_rx->current_item.size = 0;
+			}
+			i2s_qcc74x_stream_drop(stream_rx);
+			stream_rx->state = I2S_STATE_READY;
+			LOG_DBG("RX recovered from STOPPING state");
+		}
 		if (stream_rx->state != I2S_STATE_NOT_READY &&
 		    stream_rx->state != I2S_STATE_READY) {
 			LOG_ERR("Invalid RX state: %d", (int)stream_rx->state);
@@ -704,6 +745,8 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 			LOG_ERR("RX DMA controller not available");
 		}
 		stream_rx->i2s_cfg = *i2s_cfg;
+		/* Drop any leftover items from previous run */
+		i2s_qcc74x_stream_drop(stream_rx);
 	}
 
 	/* Deinit */
@@ -736,18 +779,33 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 	}
 
 	struct qc7xx_i2s_config_s i2s_qcc74x_cfg = {0};
+	const struct i2s_qcc74x_cfg *dev_cfg = dev->config;
 
-	/* I2S role */
-	if ((i2s_cfg->options & I2S_OPT_FRAME_CLK_SLAVE) &&
-	    (i2s_cfg->options & I2S_OPT_BIT_CLK_SLAVE)) {
-		i2s_qcc74x_cfg.role = I2S_ROLE_SLAVE;
+	/* I2S role: DTS slave-mode is the default when options == 0.
+	 * Explicit SLAVE flags in options override DTS.
+	 * Explicit non-slave options (i.e. no SLAVE flags but options != 0) force master.
+	 */
+	bool is_slave;
+
+	if (i2s_cfg->options == 0) {
+		/* No explicit options: use DTS default */
+		is_slave = dev_cfg->slave_mode;
+	} else if ((i2s_cfg->options & I2S_OPT_FRAME_CLK_SLAVE) &&
+		   (i2s_cfg->options & I2S_OPT_BIT_CLK_SLAVE)) {
+		is_slave = true;
 	} else if (!(i2s_cfg->options & I2S_OPT_FRAME_CLK_SLAVE) &&
 		   !(i2s_cfg->options & I2S_OPT_BIT_CLK_SLAVE)) {
-		i2s_qcc74x_cfg.role = I2S_ROLE_MASTER;
+		is_slave = false;
 	} else {
 		LOG_ERR("Unsupported I2S clock mode");
 		return -EINVAL;
 	}
+
+	i2s_qcc74x_cfg.role = is_slave ? I2S_ROLE_SLAVE : I2S_ROLE_MASTER;
+	LOG_DBG("I2S role: %s (options=0x%x, DTS default: %s)",
+		is_slave ? "SLAVE" : "MASTER",
+		i2s_cfg->options,
+		dev_cfg->slave_mode ? "slave" : "master");
 
 	uint32_t format = i2s_cfg->format & I2S_FMT_DATA_FORMAT_MASK;
 	bool pcm_mode = false;
@@ -856,7 +914,7 @@ static int i2s_qcc74x_configure(const struct device *dev, enum i2s_dir dir,
 	 * at TX start time after WS frame counter is reset, so that DMA
 	 * always begins on a LEFT-channel (WS=0) boundary.
 	 */
-	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, 0);
+	qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_TX | I2S_CMD_DATA_DISABLE_RX);
 
 	LOG_DBG("%s configure done, channels: %d",
 		(dir == I2S_DIR_BOTH) ? "TX/RX" : ((dir == I2S_DIR_TX) ? "TX" : "RX"),
@@ -956,7 +1014,8 @@ static int i2s_qcc74x_trigger(const struct device *dev, enum i2s_dir dir, enum i
 			stream->tx_refill_deadline = 0;
 			stream->state = I2S_STATE_READY;
 			stream->drain_flag = false;
-			qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, 0);
+			qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_TX);
+			qc7xx_i2s_deinit(&dev_data->i2s_dev);
 			irq_unlock(key);
 			LOG_DBG("TX stop done (refill wait)");
 			break;
@@ -982,7 +1041,8 @@ static int i2s_qcc74x_trigger(const struct device *dev, enum i2s_dir dir, enum i
 			stream->tx_refill_deadline = 0;
 			stream->state = I2S_STATE_READY;
 			stream->drain_flag = false;
-			qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, 0);
+			qc7xx_i2s_feature_control(&dev_data->i2s_dev, I2S_CMD_DATA_ENABLE, I2S_CMD_DATA_DISABLE_TX);
+			qc7xx_i2s_deinit(&dev_data->i2s_dev);
 			irq_unlock(key);
 			LOG_DBG("TX drain done (refill wait)");
 			break;
@@ -1203,6 +1263,7 @@ static DEVICE_API(i2s, i2s_qcc74x_driver_api) = {
 		.diclk = DT_INST_PROP(inst, diclk),                                                \
 		.doclk = DT_INST_PROP(inst, doclk),                                                \
 		.div = DT_INST_PROP(inst, div),                                                    \
+		.slave_mode = DT_INST_PROP(inst, slave_mode),                                      \
 	};                                                                                         \
                                                                                                    \
 	static struct i2s_qcc74x_data i2s_qcc74x_data_##inst = {                                       \

@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haoran Tian <haortian@qti.qualcomm.com>
+Date: Wed Sep 23 02:00:00 2026 +0800
+Subject: [PATCH] secure_storage: convert local arrays to static global
+
+QCC74x has limited stack space. The ITS implementation uses large
+local arrays (e.g. uint8_t data[MAX_DATA_SIZE]) that can cause stack
+overflow. This patch converts them to static global variables,
+matching the QCC730 fix in 0009_secure_storage_convert_local_arrays_to_static.patch.
+
+Signed-off-by: Haoran Tian <haortian@qti.qualcomm.com>
+---
+ subsys/secure_storage/src/its/implementation.c | 23 ++++++++---------------
+ 1 file changed, 8 insertions(+), 15 deletions(-)
+
+diff --git a/subsys/secure_storage/src/its/implementation.c b/subsys/secure_storage/src/its/implementation.c
+index abcdef1..1234567 100644
+--- a/subsys/secure_storage/src/its/implementation.c
++++ b/subsys/secure_storage/src/its/implementation.c
+@@ -14,6 +14,12 @@ LOG_MODULE_DECLARE(secure_storage, CONFIG_SECURE_STORAGE_LOG_LEVEL);
+  * SPDX-License-Identifier: Apache-2.0
+  */
+
++/*
++ * Global buffers shared by all ITS operations.
++ * Using static globals instead of stack-local arrays to avoid stack overflow
++ * on resource-constrained MCUs (QCC74x, QCC73x).
++ */
++static uint8_t data[CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE];
++static uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
++
+ #ifndef CONFIG_SECURE_STORAGE_64_BIT_UID
+ BUILD_ASSERT(sizeof(secure_storage_its_uid_t) == 4);
+ BUILD_ASSERT(1 << SECURE_STORAGE_ITS_CALLER_ID_BIT_SIZE >= SECURE_STORAGE_ITS_CALLER_COUNT);
+@@ -355,7 +361,6 @@ static psa_status_t get_entry(secure_storage_its_uid_t its_uid,
+ {
+ 	psa_status_t status;
+ 	size_t data_length;
+-	uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 
+ 	status = secure_storage_its_store_get(its_uid, sizeof(stored_data), stored_data,
+ 					     &data_length);
+@@ -408,7 +413,6 @@ static psa_status_t store_entry(secure_storage_its_uid_t its_uid,
+ 				const void *data, size_t data_length)
+ {
+ 	uint32_t stored_data_size;
+-	uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 	psa_status_t status;
+ 
+ 	stored_data_size = sizeof(stored_data);
+@@ -522,7 +526,6 @@ static psa_status_t keep_stored_entry(secure_storage_its_uid_t its_uid,
+ 	psa_status_t status;
+ 	size_t existing_data_length;
+ 	uint8_t *existing_data;
+-	uint8_t existing_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 
+ 	if (data_length > CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE) {
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+@@ -536,7 +539,7 @@ static psa_status_t keep_stored_entry(secure_storage_its_uid_t its_uid,
+ 	if (status != PSA_SUCCESS) {
+ 		return status == PSA_ERROR_DOES_NOT_EXIST ? PSA_SUCCESS : status;
+ 	}
+-	existing_data = stored_data_local;
++	existing_data = stored_data;
+ 
+ 	if (existing_data_length != data_length) {
+ 		return PSA_SUCCESS;
+@@ -567,7 +570,6 @@ psa_status_t secure_storage_its_set(secure_storage_its_caller_id_t caller_id,
+ 	psa_status_t status;
+ 	size_t data_size;
+ 	uint8_t *stored_data_ptr;
+-	uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 
+ 	if (data_length > CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE) {
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+@@ -622,7 +624,6 @@ psa_status_t secure_storage_its_get(secure_storage_its_caller_id_t caller_id,
+ 	psa_status_t status;
+ 	size_t data_size;
+ 	uint8_t *stored_data_ptr;
+-	uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 
+ 	if (data_size > CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE) {
+ 		*data_length = 0;
+@@ -671,9 +672,6 @@ psa_status_t secure_storage_its_get(secure_storage_its_caller_id_t caller_id,
+ 		return status;
+ 	}
+
+-	uint8_t data[CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE];
+-	(void)memset(data, 0, sizeof(data));
+-
+ 	status = secure_storage_its_transform_from_store(stored_data, data_size, data,
+ 							 &data_size);
+ 	if (status != PSA_SUCCESS) {
+@@ -709,7 +707,6 @@ psa_status_t secure_storage_its_get_info(secure_storage_its_caller_id_t caller_i
+ 	psa_status_t status;
+ 	size_t data_size;
+ 	uint8_t *stored_data_ptr;
+-	uint8_t stored_data[SECURE_STORAGE_ITS_TRANSFORM_MAX_STORED_DATA_SIZE];
+ 
+ 	if (info == NULL) {
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+@@ -770,7 +767,6 @@ psa_status_t secure_storage_its_remove(secure_storage_its_caller_id_t caller_id,
+ 					psa_storage_uid_t uid)
+ {
+ 	psa_status_t status;
+-	uint8_t data[CONFIG_SECURE_STORAGE_ITS_MAX_DATA_SIZE];
+ 
+ 	secure_storage_its_uid_t its_uid;
+ 	status = make_its_uid(caller_id, uid, &its_uid);

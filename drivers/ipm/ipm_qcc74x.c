@@ -14,7 +14,12 @@
 #include <zephyr/logging/log.h>
 
 #include <hardware/ipc_reg.h>
+#ifdef CONFIG_SOC_SERIES_QCC75X
 #include <qcc75x_glb.h>
+#endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <qcr373_glb.h>
+#endif
 #include "qc7xx_ipc.h"
 
 LOG_MODULE_REGISTER(ipm_qcc74x, CONFIG_IPM_LOG_LEVEL);

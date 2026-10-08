@@ -1,0 +1,111 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+if SOC_SERIES_QCR373
+
+DT_PSRAM_COMPAT := qc7xx-psram
+
+config KERNEL_ENTRY
+	default "__qcr373_start"
+
+config NUM_IRQS
+	default 117
+
+config COUNTER_INIT_PRIORITY
+	default 40 if COUNTER_QCR373_RTC
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default $(dt_node_int_prop_int,/soc/timer@e000bff8,clock-frequency)
+
+config SOC_ENABLE_XIP
+	bool "Enable XIP for this SoC"
+	default y
+	select XIP
+	help
+	  Enable Execute In Place (XIP) for this SoC.
+
+config RISCV_ALWAYS_SWITCH_THROUGH_ECALL
+	default y if MULTITHREADING
+
+config RISCV_MCAUSE_EXCEPTION_MASK
+	default 0xFFF
+
+config BOARD_FLASH_INIT_SKIP
+	bool "Skip flash init for this SoC"
+	default n
+	help
+	  Skip flash init for this SoC.
+
+config BOARD_FLASH_LOW_SPEED
+	bool "Enable Flash low speed for this SoC"
+	default n
+	help
+	  Enable Flash low speed for this SoC.
+
+config QCR373_BUILD_POST_PROCESS
+	bool "Run QCR373 vendor image post-processing tools"
+	default y
+	help
+	  Run the QCR373 secure-image and flash-image tools after linking.
+	  The matching QCR373 tool bundle must be installed for this option.
+
+config QCR373_MULTI_IMAGE
+	bool "Build a combined AP and NP image"
+	depends on SOC_QCR373_AP
+	help
+	  Add an NP child-image descriptor to the AP firmware and append the
+	  independently processed NP image before processing AP. The resulting
+	  AP image is the bootable combined firmware.
+
+config QCR373_REMOTE_IMAGE
+	string "Processed NP image path"
+	depends on QCR373_MULTI_IMAGE
+	help
+	  Path to the processed NP binary supplied by sysbuild.
+
+config PSRAM
+	bool "Enable psram for this SoC"
+	default y if $(dt_compat_enabled,$(DT_PSRAM_COMPAT))
+	help
+	  Enable application PSRAM support if a device-tree node with
+	  compatible vendor,psram is present and enabled.
+
+config EXECUTE_CODE_FROM_PSRAM
+	bool "Execute application code from PSRAM"
+	depends on PSRAM
+	default n
+	help
+	  Relocate normal text and read-only data from flash to PSRAM during
+	  early startup, then execute the application from PSRAM. Code needed
+	  to perform the relocation remains in flash.
+
+config COMMON_LIBC_MALLOC_ARENA_SIZE
+        default 4096 if COMMON_LIBC_MALLOC
+
+config PMP_SLOTS
+	int "Number of PMP slots"
+	default 16
+	help
+	  This is the number of PMP entries implemented by the hardware.
+	  Typical values are 8 or 16.
+
+config PMP_NO_NA4
+	bool
+	default y
+	help
+	  Set this if NA4 (Naturally Aligned 4-byte) mode is not supported.
+
+config PMP_GRANULARITY
+	default 128
+
+config MAIN_STACK_SIZE
+	default 4096
+
+config CACHE_MANAGEMENT
+	default y
+
+choice CACHE_TYPE
+	default EXTERNAL_CACHE
+endchoice
+
+endif # SOC_SERIES_QCR373

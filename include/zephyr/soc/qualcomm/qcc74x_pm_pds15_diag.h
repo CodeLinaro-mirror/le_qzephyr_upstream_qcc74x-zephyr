@@ -180,6 +180,22 @@ static inline void qcc74x_pm_pds15_ble_inject_crash(void)
 }
 #endif
 
+#ifdef CONFIG_QCC74X_PM_PDS15
+/* Cumulative UART action counts since boot, independent of lp_pds reset. */
+struct qcc74x_pm_uart_diag {
+	uint32_t suspends;
+	uint32_t resumes;
+	uint32_t rejected;
+	uint32_t retries;
+	uint32_t failures;
+	int last_rc;
+	const char *last_device;
+	bool active;
+};
+
+void qcc74x_pm_pds15_uart_diag_get(struct qcc74x_pm_uart_diag *status);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

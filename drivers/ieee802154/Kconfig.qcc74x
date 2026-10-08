@@ -1,0 +1,90 @@
+# IEEE 802.15.4 QCC74x driver configuration
+#
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+config IEEE802154_QCC74X
+	bool "QCC74x IEEE 802.15.4 radio driver"
+	depends on IEEE802154
+	help
+	  Enable IEEE 802.15.4 support for QCC74x/QCC75x SoCs using
+	  the lmac154 low-level MAC implementation.
+
+if IEEE802154_QCC74X
+
+config IEEE802154_QCC74X_CCA_MODE
+	int "CCA mode (0=ED, 1=CS, 2=ED_AND_CS, 3=ED_OR_CS)"
+	default 2
+	range 0 3
+	help
+	  Clear Channel Assessment mode:
+	  0 - Energy Detection only
+	  1 - Carrier Sense only
+	  2 - Energy Detection AND Carrier Sense
+	  3 - Energy Detection OR Carrier Sense
+
+config IEEE802154_QCC74X_CCA_THRESHOLD
+	int "CCA ED threshold in dBm"
+	default -71
+	range -122 5
+	help
+	  Energy Detection threshold for CCA in dBm.
+
+config IEEE802154_QCC74X_TX_POWER
+	int "TX power in dBm"
+	default 10
+	range 0 14
+	help
+	  Transmit power in dBm (0 to 14).
+
+config IEEE802154_QCC74X_DATA_RATE
+	int "Data rate (0=250K, 1=500K, 2=1M, 3=2M)"
+	default 0
+	range 0 3
+	help
+	  IEEE 802.15.4 data rate:
+	  0 - 250 kbps (standard, max 127 bytes)
+	  1 - 500 kbps
+	  2 - 1 Mbps
+	  3 - 2 Mbps
+
+config IEEE802154_QCC74X_MAX_RETRIES
+	int "Maximum TX retries"
+	default 3
+	range 0 10
+	help
+	  Maximum number of TX retries when ACK is not received.
+
+config IEEE802154_QCC74X_TX_TIMEOUT_MS
+	int "TX completion timeout in milliseconds"
+	default 200
+	range 20 2000
+	depends on IEEE802154_QCC74X
+	help
+	  Maximum time qcc74x_tx() waits for lmac154 to report completion via
+	  the txParam.tx_done_cb callback. Covers CSMA-CA backoff plus ACK
+	  timeout. On expiry the TX is aborted with -EIO so OpenThread retries,
+	  preventing the radio work queue from blocking forever if the lmac154
+	  TX FSM stalls and never fires its own timeout alarm.
+
+config IEEE802154_QCC74X_MONITOR_INTERVAL_MS
+	int "RF-FSM monitor interval in milliseconds"
+	default 10
+	range 10 1000
+	depends on IEEE802154_QCC74X
+	help
+	  Interval at which the driver calls lmac154_monitor() to detect and
+	  recover from a stuck radio FSM state (RX length == 255). Without
+	  periodic monitoring, a stuck FSM causes every subsequent TX to time
+	  out. Bouffalo calls this in its main loop; here it runs as a
+	  delayed work item.
+
+config IEEE802154_QCC74X_INIT_PRIORITY
+	int "IEEE 802.15.4 QCC74x driver initialization priority"
+	default 80
+	depends on IEEE802154_QCC74X
+	help
+	  Initialization priority for the QCC74x IEEE 802.15.4 driver.
+	  Higher priority means earlier initialization.
+
+endif # IEEE802154_QCC74X

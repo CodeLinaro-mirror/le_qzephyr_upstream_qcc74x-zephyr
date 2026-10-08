@@ -154,6 +154,13 @@
 #define GPIO_DRV_2                     (2 << GPIO_DRV_SHIFT)
 #define GPIO_DRV_3                     (3 << GPIO_DRV_SHIFT)
 
+/* PWM channel select encoded in V44 pinmux cfgset bit 14.
+ * bit 14 = 0 ? PWM_SEL0 (e.g. CH0P on GPIO12)
+ * bit 14 = 1 ? PWM_SEL1 (e.g. CH2P on GPIO12)
+ */
+#define GPIO_PWM_SEL0                  (0 << 14)
+#define GPIO_PWM_SEL1                  (1 << 14)
+
 /*
  * Definitions used to extract pin properties:
  * bias, drive and initial pin level.

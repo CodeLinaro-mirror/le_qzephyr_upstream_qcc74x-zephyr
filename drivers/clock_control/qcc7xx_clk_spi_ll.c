@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 /* TODO: This file should be moved to HAL in the future */
 
@@ -16,6 +16,10 @@
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <hardware/qcc75x.h>
+#endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <hardware/qcr373.h>
 #endif
 
 #include <zephyr/drivers/clock_control/qcc7xx_clk_spi_ll.h>

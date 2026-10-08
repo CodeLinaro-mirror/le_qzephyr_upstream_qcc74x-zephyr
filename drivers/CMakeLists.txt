@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 add_compile_options($<TARGET_PROPERTY:compiler,warning_shadow_variables>)
@@ -25,6 +25,7 @@ add_subdirectory_ifdef(CONFIG_GPIO gpio)
 add_subdirectory_ifdef(CONFIG_HWINFO hwinfo)
 add_subdirectory_ifdef(CONFIG_I2C i2c)
 add_subdirectory_ifdef(CONFIG_I2S i2s)
+add_subdirectory_ifdef(CONFIG_IEEE802154_QCC74X ieee802154)
 add_subdirectory_ifdef(CONFIG_IPM ipm)
 add_subdirectory_ifdef(CONFIG_IR ir)
 add_subdirectory_ifdef(CONFIG_MDIO mdio)
@@ -38,6 +39,7 @@ add_subdirectory_ifdef(CONFIG_SDIO sdio)
 add_subdirectory_ifdef(CONFIG_SERIAL serial)
 add_subdirectory_ifdef(CONFIG_SPI spi)
 add_subdirectory_ifdef(CONFIG_SYSCON syscon)
+add_subdirectory_ifdef(CONFIG_PSA_CRYPTO_DRIVER_QCC74X psa)
 add_subdirectory_ifdef(CONFIG_VIDEO video)
 add_subdirectory_ifdef(CONFIG_WATCHDOG watchdog)
 add_subdirectory_ifdef(CONFIG_WIFI wifi)

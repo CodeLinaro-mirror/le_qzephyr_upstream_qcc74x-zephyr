@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2025 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 /* TODO: This file should be moved to HAL in the future */
 
@@ -13,7 +13,7 @@
 #define QC7XX_IS_SEC_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_PKA_CLK_MCU_BCLK) || ((type) == QC7XX_PKA_CLK_MCU_MUXPLL_160M))
 #endif
-#ifdef CONFIG_SOC_SERIES_QCC75X
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
 #define QC7XX_IS_SEC_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_PKA_CLK_MCU_BCLK) || ((type) == QC7XX_PKA_CLK_WIFIPLL_160M))
 #endif

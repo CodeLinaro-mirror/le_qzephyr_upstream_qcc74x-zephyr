@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -7,6 +7,8 @@
 #define ZEPHYR_SOC_QUALCOMM_QCC74X_SOC_MEM_H_
 
 #include <stddef.h>
+
+#include <zephyr/soc/qualcomm/qcc74x_coredump_memory.h>
 
 #ifdef __cplusplus
 extern "C" {

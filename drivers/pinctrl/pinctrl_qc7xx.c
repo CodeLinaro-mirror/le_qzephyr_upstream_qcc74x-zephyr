@@ -8,11 +8,15 @@
 #ifdef CONFIG_SOC_SERIES_QCC74X
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc74x-pinctrl.h>
 #include "qcc74x_glb.h"
-#elif CONFIG_SOC_SERIES_QCC75X
+#elif defined(CONFIG_SOC_SERIES_QCC75X)
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc75x-pinctrl.h>
 #include "qcc75x_glb.h"
+#elif defined(CONFIG_SOC_SERIES_QCR373)
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcr373-pinctrl.h>
+#include "qcr373_glb.h"
 #endif
 #include <qc7xx_gpio.h>
+#include <hardware/glb_reg.h>
 
 static int qc7xx_pin_configure(const uint32_t pin_mux, const uint32_t pin_cfg)
 {
@@ -39,6 +43,17 @@ static int qc7xx_pin_configure(const uint32_t pin_mux, const uint32_t pin_cfg)
 		}else if(func == GPIO_FUNC_GPIO){
 			if(ir_flag){
 				GLB_IR_RX_GPIO_Sel(pin_num);
+			}
+		}else if(func == GPIO_FUN_PWM0){
+			/* PWM channel select: bit 14 of cfgset encodes SEL0/SEL1.
+			 * Only set the SEL bit when SEL1 is requested; never clear it,
+			 * so other fixed-channel pins (SEL0) don't override GPIO12's SEL1.
+			 */
+			uint32_t pwm_sel = (func_cfg >> 14) & 0x1;
+			if (pwm_sel) {
+				uint32_t reg = getreg32(GLB_BASE + GLB_PWM_CFG0_OFFSET);
+				reg |= GLB_REG_PWM1_IO_SEL_MSK;
+				putreg32(reg, GLB_BASE + GLB_PWM_CFG0_OFFSET);
 			}
 		}
 	}

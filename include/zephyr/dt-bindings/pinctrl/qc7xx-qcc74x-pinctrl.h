@@ -108,6 +108,24 @@
 /* V44-format macros for PWM0 */
 #define PWM0_CH0P_GPIO4                                                                         \
 	QC7XX_PINMUX(4, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH0P_GPIO8                                                                         \
+	QC7XX_PINMUX(8, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH0N_GPIO9                                                                         \
+	QC7XX_PINMUX(9, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH1P_GPIO10                                                                        \
+	QC7XX_PINMUX(10, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
+#define PWM0_CH1N_GPIO11                                                                        \
+	QC7XX_PINMUX(11, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
+#define PWM0_CH0P_GPIO12                                                                        \
+	QC7XX_PINMUX(12, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL0)
+#define PWM0_CH2P_GPIO12                                                                        \
+	QC7XX_PINMUX(12, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
+#define PWM0_CH2N_GPIO13                                                                        \
+	QC7XX_PINMUX(13, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
+#define PWM0_CH3P_GPIO14                                                                        \
+	QC7XX_PINMUX(14, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
+#define PWM0_CH3N_GPIO15                                                                        \
+	QC7XX_PINMUX(15, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
 #define PWM0_CH0P_GPIO20                                                                        \
 	QC7XX_PINMUX(20, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 
@@ -165,7 +183,7 @@
 #define PWM0_CH1P_GPIO1                                                                         \
 	QC7XX_PINMUX(1, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define PWM0_CH0N_GPIO1                                                                         \
-	QC7XX_PINMUX(1, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+	QC7XX_PINMUX(1, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
 
 /* V44-format macros for IR RX - ir_flag=1 encoded in bits[28:24] (same field as uart_sig).
  * The pin argument encodes both pin number (bits[7:0]) and ir_flag (bit[8]):
@@ -221,6 +239,10 @@
 	QC7XX_PINMUX(13, GPIO_FUN_SDIO | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1)
 
 /* V44-format macros for I2S0 additional pin combinations */
+#define I2S0_BCLK_GPIO0                                                                         \
+	QC7XX_PINMUX(0,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_FS_GPIO1                                                                           \
+	QC7XX_PINMUX(1,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 #define I2S0_BCLK_GPIO8                                                                         \
 	QC7XX_PINMUX(8,  GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 #define I2S0_FS_GPIO5                                                                           \
@@ -233,6 +255,10 @@
 	QC7XX_PINMUX(30, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
 #define I2S0_DO_GPIO27                                                                          \
 	QC7XX_PINMUX(27, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
+#define I2S0_DI_GPIO14                                                                          \
+	QC7XX_PINMUX(14, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_SMT_EN | GPIO_DRV_1)
+#define I2S0_DO_GPIO15                                                                          \
+	QC7XX_PINMUX(15, GPIO_FUN_I2S | GPIO_ALTERNATE | GPIO_DRV_1)
 
 /* V44-format macros for EMAC (RMII) */
 #define EMAC_REF_CLK_GPIO25                                                                     \
@@ -343,6 +369,7 @@
 #define GPIO0_ADC_CH9         QC7XX_PINMUX(0, ANALOG, none)
 #define GPIO0_SWGPIO0         QC7XX_PINMUX(0, GPIO, none)
 #define GPIO0_PWM0_CH0P       QC7XX_PINMUX(0, PWM0, PWM_SEL0)
+#define PWM0_CH0P_GPIO0       QC7XX_PINMUX(0, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define GPIO0_M0_JTAG_TMS     QC7XX_PINMUX(0, JTAG, none)
 
 #define GPIO1_SPI_SCLK        QC7XX_PINMUX(1, SPI, none)
@@ -450,6 +477,7 @@
 #define GPIO5_SWGPIO5         QC7XX_PINMUX(5, GPIO, none)
 #define GPIO5_PWM0_CH1P       QC7XX_PINMUX(5, PWM0, PWM_SEL0)
 #define GPIO5_PWM0_CH2N       QC7XX_PINMUX(5, PWM0, PWM_SEL1)
+#define PWM0_CH2N_GPIO5       QC7XX_PINMUX(5, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
 #define GPIO5_DBI_TypeB_CSn   QC7XX_PINMUX(5, DBI_B, none)
 #define GPIO5_DBI_TypeC_CSn   QC7XX_PINMUX(5, DBI_C, none)
 #define GPIO5_DISP_QSPI_CSn   QC7XX_PINMUX(5, QSPI, none)
@@ -474,6 +502,7 @@
 #define GPIO6_SWGPIO6         QC7XX_PINMUX(6, GPIO, none)
 #define GPIO6_PWM0_CH2P       QC7XX_PINMUX(6, PWM0, PWM_SEL0)
 #define GPIO6_PWM0_CH3P       QC7XX_PINMUX(6, PWM0, PWM_SEL1)
+#define PWM0_CH2P_GPIO6       QC7XX_PINMUX(6, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define GPIO6_DBI_TypeB_RDn   QC7XX_PINMUX(6, DBI_B, none)
 #define GPIO6_DBI_TypeC_SDA0  QC7XX_PINMUX(6, DBI_C, none)
 #define GPIO6_DISP_QSPI_SDA0  QC7XX_PINMUX(6, QSPI, none)
@@ -650,7 +679,8 @@
 #define GPIO13_ADC_CH5        QC7XX_PINMUX(13, ANALOG, none)
 #define GPIO13_SWGPIO13       QC7XX_PINMUX(13, GPIO, none)
 #define GPIO13_SDIO_CLK       QC7XX_PINMUX(13, SDIO, none)
-#define GPIO13_PWM0_CH1P      QC7XX_PINMUX(13, PWM0, PWM_SEL0)
+#define GPIO13_PWM0_CH1P      QC7XX_PINMUX(13, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH1P_GPIO13      QC7XX_PINMUX(13, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define GPIO13_PWM0_CH2N      QC7XX_PINMUX(13, PWM0, PWM_SEL1)
 #define GPIO13_DBI_TypeB_DB5  QC7XX_PINMUX(13, DBI_B, none)
 #define GPIO13_DBI_TypeC_CSn  QC7XX_PINMUX(13, DBI_C, none)
@@ -730,7 +760,8 @@
 #define GPIO16_ISO11898_RXD   QC7XX_PINMUX(16, UART, ISO11898_RXD)
 #define GPIO16_CAM1_DAT6      QC7XX_PINMUX(16, CAM, none)
 #define GPIO16_SWGPIO16       QC7XX_PINMUX(16, GPIO, none)
-#define GPIO16_PWM0_CH0P      QC7XX_PINMUX(16, PWM0, PWM_SEL0)
+#define GPIO16_PWM0_CH0P      QC7XX_PINMUX(16, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
+#define PWM0_CH0P_GPIO16      QC7XX_PINMUX(16, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define GPIO16_M0_JTAG_TMS    QC7XX_PINMUX(16, JTAG, none)
 
 #define GPIO17_SPI_SCLK       QC7XX_PINMUX(17, SPI, none)
@@ -751,6 +782,7 @@
 #define GPIO17_SWGPIO17       QC7XX_PINMUX(17, GPIO, none)
 #define GPIO17_PWM0_CH1P      QC7XX_PINMUX(17, PWM0, PWM_SEL0)
 #define GPIO17_PWM0_CH0N      QC7XX_PINMUX(17, PWM0, PWM_SEL1)
+#define PWM0_CH0N_GPIO17      QC7XX_PINMUX(17, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
 #define GPIO17_M0_JTAG_TCK    QC7XX_PINMUX(17, JTAG, none)
 
 #define GPIO18_SPI_MISO       QC7XX_PINMUX(18, SPI, none)
@@ -896,6 +928,7 @@
 #define GPIO24_CAM0_DAT0      QC7XX_PINMUX(24, CAM, none)
 #define GPIO24_SWGPIO24       QC7XX_PINMUX(24, GPIO, none)
 #define GPIO24_PWM0_CH0P      QC7XX_PINMUX(24, PWM0, PWM_SEL0)
+#define PWM0_CH0P_GPIO24      QC7XX_PINMUX(24, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1)
 #define GPIO24_M0_JTAG_TMS    QC7XX_PINMUX(24, JTAG, none)
 
 #define GPIO25_SPI_SCLK       QC7XX_PINMUX(25, SPI, none)
@@ -918,6 +951,7 @@
 #define GPIO25_SWGPIO25       QC7XX_PINMUX(25, GPIO, none)
 #define GPIO25_PWM0_CH1P      QC7XX_PINMUX(25, PWM0, PWM_SEL0)
 #define GPIO25_PWM0_CH0N      QC7XX_PINMUX(25, PWM0, PWM_SEL1)
+#define PWM0_CH0N_GPIO25      QC7XX_PINMUX(25, GPIO_FUN_PWM0 | GPIO_ALTERNATE | GPIO_DRV_1 | GPIO_PWM_SEL1)
 #define GPIO25_M0_JTAG_TCK    QC7XX_PINMUX(25, JTAG, none)
 
 #define GPIO26_SPI_MISO       QC7XX_PINMUX(26, SPI, none)

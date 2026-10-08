@@ -12,6 +12,10 @@ config SOC_SERIES_QCC75X
 	bool
 	select SOC_FAMILY_QCOM_QCC7XX
 
+config SOC_SERIES_QCR373
+	bool
+	select SOC_FAMILY_QCOM_QCC7XX
+
 config SOC_FAMILY
 	default "qcom_qcc7xx" if SOC_FAMILY_QCOM_QCC7XX
 

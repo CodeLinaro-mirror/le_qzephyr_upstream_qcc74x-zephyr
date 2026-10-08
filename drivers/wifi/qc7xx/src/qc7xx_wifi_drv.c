@@ -32,11 +32,19 @@
 
 #include "qc7xx_wifi_drv_priv.h"
 
+#if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY)
+#include "qc7xx_antenna_diversity.h"
+#endif
+
 #include "fhost_wpa.h"
 #include "net_al.h"
 #include "platform_al.h"
 #include "soc_wifi_mgmt.h"
 #include "wifi_mgmr.h"
+#include "wifi_mgmr_pmk.h"
+#include "wireless_api.h"
+#include "wireless_config.h"
+#include "wl_api.h"
 #include <wifi_mgmr_ext.h>
 
 LOG_MODULE_REGISTER(qc7xx_wifi, CONFIG_WIFI_LOG_LEVEL);
@@ -136,6 +144,16 @@ static bool qc7xx_wifi_is_sta_runtime(const struct qc7xx_wifi_runtime *data)
 static bool qc7xx_wifi_is_sta_connected(const struct qc7xx_wifi_runtime *data)
 {
 	return qc7xx_wifi_is_sta_runtime(data) && data->state == QC7XX_STA_CONNECTED;
+}
+
+static bool qc7xx_wifi_is_ap_runtime(const struct qc7xx_wifi_runtime *data)
+{
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	return data == &qc7xx_ap_sta_data;
+#else
+	/* Without a second net device the AP shares the STA runtime. */
+	return data == &qc7xx_data;
+#endif
 }
 
 static int qc7xx_wifi_ps_fail(struct wifi_ps_params *params,
@@ -1466,6 +1484,13 @@ int qc7xx_wifi_dev_init(const struct device *dev)
 
 	net_al_tx_buf_init();
 
+#if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY)
+	ret = qc7xx_antenna_diversity_init();
+	if (ret != 0) {
+		return ret;
+	}
+#endif
+
 	ret = soc_wifi_init();
 	if (ret != 0) {
 		return ret;
@@ -1847,6 +1872,300 @@ static int qc7xx_wifi_filter(const struct device *dev, struct wifi_filter_info *
 	return 0;
 }
 
+static int qc7xx_wifi_get_version(const struct device *dev, struct wifi_version *params)
+{
+	ARG_UNUSED(dev);
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	params->drv_version = "qc7xx";
+	params->fw_version = WIRELESS_VERSION;
+
+	return 0;
+}
+
+static int8_t qc7xx_pwrlimits_max(const struct reg_power_limits_t *rule)
+{
+	const int8_t limits[] = {
+		rule->limits.b_dsss, rule->limits.b_cck, rule->limits.g,
+		rule->limits.n20, rule->limits.n40,
+		rule->limits.ax20, rule->limits.ax40,
+	};
+	int8_t max = limits[0];
+
+	for (size_t i = 1U; i < ARRAY_SIZE(limits); i++) {
+		max = MAX(max, limits[i]);
+	}
+
+	return max;
+}
+
+static int8_t qc7xx_wl_pwrlim_max(uint8_t ch)
+{
+	const struct wl_param_pwrlimit_t *lim;
+	int8_t max;
+
+	if (wl_cfg == NULL || ch == 0U || ch > NUM_WLAN_CHANNELS) {
+		return -1;
+	}
+
+	lim = &wl_cfg->param.pwrlim[ch - 1U];
+	if (!lim->en) {
+		return -1;
+	}
+
+	max = lim->b_dsss;
+	max = MAX(max, lim->b_cck);
+	max = MAX(max, lim->g);
+	max = MAX(max, lim->n20);
+	max = MAX(max, lim->n40);
+	max = MAX(max, lim->ax20);
+	max = MAX(max, lim->ax40);
+
+	return max;
+}
+
+/*
+ * Report the regulatory transmit power ceiling for one channel, in dBm.
+ *
+ * Preference order, most to least specific: the per-channel limits loaded from
+ * the RF TLV area of flash, the per-channel rules of the board regulatory
+ * database, then that database's per-domain ceiling. Returns 0 when none of
+ * them has an answer, which the caller reports as unknown.
+ */
+static uint8_t qc7xx_reg_max_power(const char *country, uint8_t ch)
+{
+	const struct reg_db_t *db = wireless_regdb_get();
+	const struct reg_domain_info_t *dom = NULL;
+	reg_domain_t domain = REG_DOMAIN_ROW;
+	int8_t max;
+
+	max = qc7xx_wl_pwrlim_max(ch);
+	if (max >= 0) {
+		return (uint8_t)max;
+	}
+
+	if (db == NULL) {
+		return 0U;
+	}
+
+	for (uint8_t i = 0U; i < db->num_country_maps; i++) {
+		if (db->country_reg_map[i].country_code[0] == country[0] &&
+		    db->country_reg_map[i].country_code[1] == country[1]) {
+			domain = db->country_reg_map[i].domain;
+			break;
+		}
+	}
+
+	for (uint8_t i = 0U; i < db->num_reg_domains; i++) {
+		if (db->reg_domains[i].domain == domain) {
+			dom = &db->reg_domains[i];
+			break;
+		}
+	}
+
+	if (dom == NULL) {
+		return 0U;
+	}
+
+	for (uint8_t i = 0U; i < dom->num_cpl_rules; i++) {
+		if (dom->cpl_rules[i].channel == ch) {
+			max = qc7xx_pwrlimits_max(&dom->cpl_rules[i]);
+			return max > 0 ? (uint8_t)max : 0U;
+		}
+	}
+
+	return dom->max_power > 0 ? (uint8_t)dom->max_power : 0U;
+}
+
+static int qc7xx_wifi_reg_domain(const struct device *dev, struct wifi_reg_domain *reg_domain)
+{
+	char country[3] = { 0 };
+	uint8_t c24 = 0U;
+	uint8_t c5 = 0U;
+
+	ARG_UNUSED(dev);
+
+	if (reg_domain == NULL) {
+		return -EINVAL;
+	}
+
+	if (reg_domain->oper == WIFI_MGMT_SET) {
+		country[0] = reg_domain->country_code[0];
+		country[1] = reg_domain->country_code[1];
+
+		return wifi_mgmr_set_country_code(country) == 0 ? 0 : -EIO;
+	}
+
+	if (wifi_mgmr_get_country_code(country) != 0) {
+		return -EIO;
+	}
+
+	reg_domain->country_code[0] = country[0];
+	reg_domain->country_code[1] = country[1];
+
+	if (reg_domain->chan_info == NULL) {
+		reg_domain->num_channels = 0U;
+		return 0;
+	}
+
+	if (wifi_mgmr_get_channel_nums(country, &c24, &c5) != 0) {
+		reg_domain->num_channels = 0U;
+		return 0;
+	}
+
+	/*
+	 * The stack only exposes a channel count per band, not a per-channel
+	 * table, and every 2.4 GHz regulatory domain it knows about starts at
+	 * channel 1 and is contiguous. Passive-only and DFS do not apply to
+	 * 2.4 GHz, so they are always reported clear.
+	 */
+	for (uint8_t ch = 1U; ch <= c24; ch++) {
+		struct wifi_reg_chan_info *info = &reg_domain->chan_info[ch - 1U];
+
+		info->center_frequency = ch == 14U ? 2484U : 2407U + (ch * 5U);
+		info->supported = 1U;
+		info->max_power = qc7xx_reg_max_power(country, ch);
+		info->passive_only = 0U;
+		info->dfs = 0U;
+	}
+
+	reg_domain->num_channels = c24;
+
+	return 0;
+}
+
+static int qc7xx_wifi_pmksa_flush(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+
+	wifi_mgmr_pmk_cache_entry_invalidate();
+
+	return 0;
+}
+
+static int qc7xx_wifi_wps_config(const struct device *dev, struct wifi_wps_config_params *params)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_sta_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	/* The stack only implements the push-button method. */
+	if (params->oper != WIFI_WPS_PBC) {
+		return -ENOTSUP;
+	}
+
+	if (data->monitor_enabled) {
+		return -EBUSY;
+	}
+
+	if (wifi_mgmr_sta_wps_pbc(WIFI_EVENT_BEACON_IND_AUTH_WPA2_PSK) != 0) {
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int qc7xx_wifi_ap_sta_disconnect(const struct device *dev, const uint8_t *mac)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+
+	if (mac == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_ap_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	/*
+	 * wifi_mgmr_ap_sta_delete() is indexed, so walk the station table to
+	 * translate the address the caller gave us.
+	 */
+	for (uint8_t idx = 0U; idx < NX_REMOTE_STA_MAX; idx++) {
+		struct wifi_sta_basic_info info = { 0 };
+
+		if (wifi_mgmr_ap_sta_info_get(&info, idx) != 0) {
+			continue;
+		}
+
+		if (info.is_used == 0U ||
+		    memcmp(info.sta_mac, mac, WIFI_MAC_ADDR_LEN) != 0) {
+			continue;
+		}
+
+		return wifi_mgmr_ap_sta_delete(info.sta_idx) == 0 ? 0 : -EIO;
+	}
+
+	return -ENOENT;
+}
+
+static int qc7xx_wifi_ap_config_params(const struct device *dev,
+				       struct wifi_ap_config_params *params)
+{
+	struct qc7xx_wifi_runtime *data = dev->data;
+	uint32_t handled = 0U;
+
+	if (params == NULL) {
+		return -EINVAL;
+	}
+
+	if (!qc7xx_wifi_is_ap_runtime(data)) {
+		return -ENOTSUP;
+	}
+
+	if ((params->type & WIFI_AP_CONFIG_PARAM_MAX_NUM_STA) != 0U) {
+		if (params->max_num_sta == 0U || params->max_num_sta > NX_REMOTE_STA_MAX) {
+			return -EINVAL;
+		}
+
+		if (wifi_mgmr_conf_max_sta((uint8_t)params->max_num_sta) != 0) {
+			return -EIO;
+		}
+
+		handled |= WIFI_AP_CONFIG_PARAM_MAX_NUM_STA;
+	}
+
+	if ((params->type & WIFI_AP_CONFIG_PARAM_BANDWIDTH) != 0U) {
+		uint8_t ht40;
+
+		switch (params->bandwidth) {
+		case WIFI_FREQ_BANDWIDTH_20MHZ:
+			ht40 = 0U;
+			break;
+		case WIFI_FREQ_BANDWIDTH_40MHZ:
+			ht40 = 1U;
+			break;
+		default:
+			return -ENOTSUP;
+		}
+
+		if (wifi_mgmr_set_ht40_enable(ht40) != 0) {
+			return -EIO;
+		}
+
+		handled |= WIFI_AP_CONFIG_PARAM_BANDWIDTH;
+	}
+
+	/*
+	 * max_inactivity is only accepted by wifi_mgmr_ap_start(), so it cannot
+	 * be retuned on a running AP. HT/VHT capability strings need hostapd.
+	 */
+	if ((params->type & ~handled) != 0U) {
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
 static void qc7xx_wifi_handle_sta_connect_event(void *event_data)
 {
 	ARG_UNUSED(event_data);
@@ -2063,6 +2382,12 @@ const struct wifi_mgmt_ops qc7xx_wifi_mgmt = {
 	.filter = qc7xx_wifi_filter,
 	.mode = qc7xx_wifi_mode,
 	.channel = qc7xx_wifi_channel,
+	.get_version = qc7xx_wifi_get_version,
+	.reg_domain = qc7xx_wifi_reg_domain,
+	.pmksa_flush = qc7xx_wifi_pmksa_flush,
+	.wps_config = qc7xx_wifi_wps_config,
+	.ap_sta_disconnect = qc7xx_wifi_ap_sta_disconnect,
+	.ap_config_params = qc7xx_wifi_ap_config_params,
 };
 
 const struct net_wifi_mgmt_offload qc7xx_api = {

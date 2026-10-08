@@ -1,6 +1,10 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) 2024-2025 MASSDRIVER EI (massdriver.space)
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
+ * Not a contribution.
  */
 
 #include <mem.h>
@@ -67,7 +71,6 @@
 				substate-id = <15>;
 				min-residency-us = <5000>;
 				exit-latency-us = <8000>;
-				zephyr,pm-device-disabled;
 			};
 		};
 	};

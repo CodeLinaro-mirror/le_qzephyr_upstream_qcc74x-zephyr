@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 config SOC_SERIES_QCC74X
@@ -36,6 +36,58 @@ config SOC_SERIES_QCC74X
 
 if SOC_SERIES_QCC74X
 
+config QCC74X_SEC_PKA
+	bool "QCC74x public-key accelerator"
+	default n
+	help
+	  Enable the QCC74x security-engine PKA and its ECDSA/ECDH HAL API.
+
+config QCC74X_COREDUMP_FULL_MEMORY
+	bool "Dump QCC74x physical RAM and tracked PSRAM allocations"
+	depends on DEBUG_COREDUMP_MEMORY_DUMP_LINKER_RAM
+	depends on PSRAM && PSRAM_LENGTH > 0
+	default n
+	help
+	  Replace Zephyr's default linker-RAM coredump list with QCC74x OCRAM,
+	  Wi-Fi WRAM, HBN RAM, static PSRAM, and active PSRAM allocations tracked
+	  by the SoC multi-heap allocator. This is an opt-in diagnostic profile.
+
+config QCC74X_COREDUMP_PSRAM_LEDGER_MAX_ENTRIES
+	int "Maximum tracked PSRAM allocations in a coredump"
+	depends on QCC74X_COREDUMP_FULL_MEMORY
+	range 1 256
+	default 64
+	help
+	  Fixed number of active PSRAM allocation records retained by the SoC
+	  allocator. An overflow marker is retained if PSRAM coverage is incomplete.
+
+choice QCC74X_COREDUMP_SERIAL_PSRAM_MODE
+	prompt "QCC74x serial coredump PSRAM coverage"
+	depends on QCC74X_COREDUMP_FULL_MEMORY
+	depends on DEBUG_COREDUMP_MEMORY_DUMP_LINKER_RAM
+	depends on DEBUG_COREDUMP_BACKEND_LOGGING || DEBUG_COREDUMP_BACKEND_OTHER
+	depends on PSRAM && PSRAM_LENGTH > 0
+	default QCC74X_COREDUMP_SERIAL_FULL_PSRAM
+	help
+	  Select the PSRAM coverage used by the QCC74x serial coredump profiles.
+	  Both the standard logging backend and the QCC74x custom safe-serial
+	  backend use this choice. Flash coredump retains its tracked-PSRAM policy.
+
+config QCC74X_COREDUMP_SERIAL_FULL_PSRAM
+	bool "Dump the complete physical PSRAM window"
+	help
+	  Emit the full DTS PSRAM range to the selected serial coredump backend.
+	  This is a diagnostic profile and can expose allocated, free, and stale
+	  data.
+
+config QCC74X_COREDUMP_SERIAL_TRACKED_PSRAM
+	bool "Dump static and tracked active PSRAM"
+	help
+	  Emit the linker-placed static PSRAM prefix plus active allocations
+	  recorded by the QCC74x SoC multi-heap ledger.
+
+endchoice
+
 config QCC74X_HBN_SHELL
 	bool "Enable QCC74X HBN shell command"
 	depends on POWEROFF && SHELL
@@ -47,6 +99,26 @@ config QCC74X_HBN_SHELL
 
 	  The command provides HBN wake information query and clear operations.
 	  QCC74X Zephyr HBN always uses HBN0 and supports RTC or ACOMP edge wake.
+
+config ANTI_ROLLBACK
+	bool "Enable QCC74X application anti-rollback support"
+	default n
+	help
+	  Embed an application anti-rollback version in the image and provide
+	  APIs to read and advance the corresponding eFuse value. The eFuse is
+	  irreversible: call qcc74x_anti_rollback_version_commit() only after a
+	  new image has completed its product-specific health checks.
+
+config APP_ANTI_ROLLBACK_VER
+	int "QCC74X application anti-rollback version"
+	depends on ANTI_ROLLBACK
+	default 0
+	range 0 128
+	help
+	  Version embedded in the firmware image. Version zero is an
+	  unprovisioned image version and cannot be committed to eFuse. Use a
+	  monotonically increasing value in the range 1 through 128 for a
+	  production image that will be committed.
 
 config QCC74X_WIFI_PERF_MODE
 	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
@@ -120,20 +192,12 @@ config QCC74X_PM_PDS15_AUTO_INIT
 config QCC74X_PM_PDS15_POLICY
 	bool "Use the QCC74X automatic PDS15 PM policy"
 	depends on QCC74X_PM_PDS15 && PM_POLICY_CUSTOM
-	default n
+	default y
 	help
 	  Use a QCC74X-specific Zephyr PM policy that preserves the default
 	  residency, device-busy, and policy-lock behavior, but only selects
 	  PDS15 when the QCC74X automatic low-power gate and diagnostics say
 	  that suspend-to-ram substate 15 is currently allowed.
-
-config QCC74X_PM_PDS15_UART_RESUME
-	bool "Reinitialize the Zephyr console UART after PDS15 resume"
-	depends on QCC74X_PM_PDS15 && SERIAL
-	default y
-	help
-	  Reapply the console UART hardware configuration after returning from
-	  PDS15 so shell-based validation remains observable.
 
 config QCC74X_PM_PDS15_BLE
 	bool "Enable QCC74X PDS15 BLE controller low power"

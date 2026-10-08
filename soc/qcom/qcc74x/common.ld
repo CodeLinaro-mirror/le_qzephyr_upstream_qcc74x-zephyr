@@ -190,7 +190,14 @@ SECTIONS
     {
         LONG(0x42464c42);
         LONG(0x46524556);
+#ifdef CONFIG_ANTI_ROLLBACK
+        __qcc74x_anti_rollback_info_start = .;
         KEEP (*(.qcc74xverinf))
+        __qcc74x_anti_rollback_info_end = .;
+        ASSERT((__qcc74x_anti_rollback_info_end -
+                __qcc74x_anti_rollback_info_start) == 24,
+               "Bootloader requires exactly one 24-byte QCC74x version structure");
+#endif
         LONG(0x42464c42);
         LONG(0x46524556);
         KEEP (*(.verinfo))

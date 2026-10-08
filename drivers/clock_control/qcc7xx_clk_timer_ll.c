@@ -16,6 +16,10 @@
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <hardware/qcc75x.h>
 #endif
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <hardware/qcr373.h>
+#endif
 
 #include <zephyr/drivers/clock_control/qcc7xx_clk_timer_ll.h>
 #include <qc7xx_timer.h>

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -18,6 +18,11 @@
 #define LOG_LEVEL CONFIG_CLOCK_CONTROL_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(qcc7xx_clk_pwm_ll, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
+
+#ifdef CONFIG_SOC_SERIES_QCR373
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <hardware/qcr373.h>
+#endif
 
 #include <zephyr/drivers/clock_control/qcc7xx_clk_pwm_ll.h>
 #include <hardware/pwm_v2_reg.h>

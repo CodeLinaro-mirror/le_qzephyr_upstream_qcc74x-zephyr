@@ -1,0 +1,465 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include <mem.h>
+#include <freq.h>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/qcc74x-adc.h>
+#include <zephyr/dt-bindings/clock/qcr373-clock.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/dma/qcr373_dma.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/interrupt-controller/qc7xx-qcr373-intmux.h>
+#include <zephyr/dt-bindings/pinctrl/qc7xx-pinctrl-common.h>
+#include <zephyr/dt-bindings/pinctrl/qc7xx-qcr373-pinctrl.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
+#include <zephyr/dt-bindings/reset/qcc7xx_reset.h>
+#include <zephyr/dt-bindings/spi/spi.h>
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "qcom,qcc7xx-riscv", "riscv";
+			riscv,isa = "rv32imac_zicsr";
+			riscv,isa-base = "rv32i";
+			riscv,isa-extensions = "i", "m", "a", "c", "zicsr";
+			riscv,pmpregions = <8>;
+			mmu-type = "riscv,none";
+			reg = <0>;
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_CPU QC7XX_MCU_SYS_CLK_TOP_WIFIPLL_320M>;
+
+			hlic: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#address-cells = <0>;
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+	};
+
+	pinctrl: pin-controller {
+		compatible = "qcom,qcc74x-pinctrl";
+		status = "okay";
+	};
+
+	soc: soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		sram0: memory@a1000000 {
+			compatible = "qcr373-ocram";
+			reg = <0xA1000000 DT_SIZE_K(448)>,
+			      <0x21000000 DT_SIZE_K(448)>;
+			reg-names = "cacheable", "noncacheable";
+		};
+
+		wifiram: memory@21070000 {
+			compatible = "qc7xx-wram";
+			reg = <0x21070000 DT_SIZE_K(320)>;
+		};
+
+		xram: memory@210c0000 {
+			compatible = "qc7xx-xram";
+			reg = <0x210c0000 DT_SIZE_K(16)>;
+		};
+
+		psram: memory@b8000000 {
+			compatible = "qc7xx-psram";
+			reg = <0xB8000000 DT_SIZE_K(8192)>;
+			status = "disabled";
+		};
+
+		mtimer: timer@18030000 {
+			compatible = "qcom,qcc74x-mtimer", "riscv,machine-timer";
+			interrupts-extended = <&hlic 7>;
+			reg = <0x18030000 0x8 0x18030008 0x8>;
+			reg-names = "mtime", "mtimecmp";
+			clocks = <&clock0 QC7XX_PERIPHERAL_RTC QC7XX_MTIMER_CLK_MCU_XCLK>;
+			clock-frequency = <1000000>;
+		};
+
+		eclic: interrupt-controller@18020000 {
+			compatible = "nuclei,eclic";
+			#address-cells = <0>;
+			#interrupt-cells = <2>;
+			interrupt-controller;
+			reg = <0x18020000 0x0001
+			       0x18020004 0x0004
+			       0x1802000B 0x0001
+			       0x18021000 0x1000>;
+		};
+
+		intc: interrupt-controller@60010000 {
+			compatible = "qcom,qcc74x-intc";
+			#address-cells = <0>;
+			#interrupt-cells = <3>;
+			interrupt-controller;
+			reg = <0x60010000 0x1000>;
+			status = "disabled";
+		};
+
+		rcu: reset-clock-controller@20000000 {
+			compatible = "qcom,qcc74x-rcu";
+			reg = <0x20000000 0x1000>;
+			status = "okay";
+
+			clock0: clock-controller {
+				compatible = "qcom,qcc74x-clock-controller";
+				clock-controller;
+				xtal-type = <QC7XX_XTAL_40M>;
+				f32k-clk-src = <QC7XX_HBN_32K_RC>;
+				dig-clk-src = <QC7XX_DIG_CLK_XCLK>;
+				wifi-pll-type = <QC7XX_WIFI_PLL_960M>;
+				audio-pll-type = <QC7XX_AUDIO_PLL_491P52M>;
+				#clock-cells = <2>;
+				status = "okay";
+			};
+
+			reset: reset-controller {
+				compatible = "qcom,qcc74x-reset";
+				#reset-cells = <1>;
+				status = "okay";
+			};
+		};
+
+		gpio0: gpio@200008c4 {
+			compatible = "qcom,qcc74x-gpio";
+			reg = <0x200008c4 0x1000>;
+			gpio-controller;
+			interrupts = <GPIO_INT0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			ngpios = <32>;   /* 0..31 */
+			#gpio-cells = <2>;
+			#qcom,pin-cells = <2>;
+			status = "okay";
+		};
+
+		gpio1: gpio1@20000944 {
+			compatible = "qcom,qcc74x-gpio";
+			reg = <0x20000944 0x1000>;
+			gpio-controller;
+			interrupts = <GPIO_INT0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			ngpios = <21>; /* 32..52 */
+			#gpio-cells = <2>;
+			#qcom,pin-cells = <2>;
+			status = "disabled";
+		};
+
+		spi0: spi@20018000 {
+			compatible = "qcom,qcc74x-spi";
+			reg = <0x20018000 0x100>;
+			interrupts = <SPI0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_SPI0 QC7XX_SPI_SPI_CLK_XCLK>;
+			resets = <&reset QC7XX_RESET_SPI>;
+			dmas = <&dma 0 DMA_REQUEST_SPI0_TX DMA_ADDR_SPI0_TDR>,
+				   <&dma 1 DMA_REQUEST_SPI0_RX DMA_ADDR_SPI0_RDR>;
+			dma-names = "tx", "rx";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		uart0: uart@20010000 {
+			compatible = "qcom,qcc74x-uart";
+			reg = <0x20010000 0x100>;
+			interrupts = <UART0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_UART0 QC7XX_UART_CLK_XCLK>;
+			resets = <&reset QC7XX_RESET_UART0>;
+			status = "disabled";
+		};
+
+		uart1: uart@20011000 {
+			compatible = "qcom,qcc74x-uart";
+			reg = <0x20011000 0x100>;
+			interrupts = <UART1_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_UART1 QC7XX_UART_CLK_MCU_BCLK>;
+			resets = <&reset QC7XX_RESET_UART1>;
+			status = "disabled";
+		};
+
+		i2c0: i2c@20014000 {
+			compatible = "qcom,qcc74x-i2c";
+			reg = <0x20014000 0x100>;
+			interrupts = <I2C0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clock-frequency = <I2C_BITRATE_STANDARD>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_I2C0 QC7XX_I2C_CLK_XCLK>;
+			resets = <&reset QC7XX_RESET_I2C0>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@20015000 {
+			compatible = "qcom,qcc74x-i2c";
+			reg = <0x20015000 0x100>;
+			interrupts = <I2C1_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clock-frequency = <I2C_BITRATE_STANDARD>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_I2C1 QC7XX_I2C_CLK_XCLK>;
+			resets = <&reset QC7XX_RESET_I2C1>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		dma: dma@20081000 {
+			compatible = "qcom,qcc74x-dma";
+			reg = <0x20081000 0x1000>;
+			interrupts = <DMA0_ALL_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_DMA0 QC7XX_CLK_DEFAULT>;
+			dma-channels = <4>;
+			#dma-cells = <3>;
+			status = "disabled";
+		};
+
+		i2s0: i2s@2001e000 {
+			compatible = "qcom,qcc74x-i2s";
+			reg = <0x2001e000 0x1000>;
+			interrupts = <I2S_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_I2S0 QC7XX_CLK_DEFAULT>;
+			resets = <&reset QC7XX_RESET_I2S>;
+			diclk = <QC7XX_I2S_SEL_I2S_DI_DO>;
+			doclk = <QC7XX_I2S_SEL_I2S_DI_DO>;
+			div = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		pwm0: pwm0@20019000 {
+			compatible = "qcom,qcc74x-pwm";
+			reg = <0x20019000 0x100>;
+			pwm-controller;
+			interrupts = <PWM_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_PWM0 QC7XX_PWM_CLK_XCLK>;
+			divider = <40000>;
+			resets = <&reset QC7XX_RESET_PWM>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
+		timer0: timer0@2001a000 {
+			compatible = "qcom,qcc74x-timer";
+			reg = <0x2001a000 0x100>;
+			interrupts = <TIMER0_CH0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_TIMER0 QC7XX_TIMER_CLK_XTAL>;
+			clock-gate = <QC7XX_PERIPHERAL_TIMER0>;
+			resets = <&reset QC7XX_RESET_TIMER>;
+			channels = <3>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+
+			timer1: timer1@2001a000 {
+				compatible = "qcom,qcc74x-timer";
+				reg = <0x2001a000 0x100>;
+				interrupts = <TIMER0_CH1_IRQn IRQ_DEFAULT_PRIORITY 0>;
+				clocks = <&clock0 QC7XX_PERIPHERAL_TIMER1 QC7XX_TIMER_CLK_XTAL>;
+				resets = <&reset QC7XX_RESET_TIMER>;
+				channels = <3>;
+				status = "disabled";
+			};
+
+			wdt0: watchdog@2001a000 {
+				compatible = "qcom,qcc74x-watchdog";
+				reg = <0x2001a000 0x100>;
+				interrupts = <TIMER0_WDT_IRQn IRQ_DEFAULT_PRIORITY 0>;
+				clocks = <&clock0 QC7XX_PERIPHERAL_WATCHDOG QC7XX_TIMER_CLK_1K>;
+				clock-div = <0>;
+				resets = <&reset QC7XX_RESET_TIMER>;
+				status = "disabled";
+			};
+		};
+
+		flashctrl: flash-controller@20082000 {
+			compatible = "qcom,qcc74x-flash-controller";
+			reg = <0x20082000 0x1000>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_SF_CTRL QC7XX_SFLASH_CLK_WIFIPLL_80M>;
+			flash-clk-div = <0>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			status = "okay";
+		};
+
+		rtc0: rtc@2008f000 {
+			compatible = "qcom,qcc74x-rtc";
+			reg = <0x2008f000 0x14>;
+			status = "disabled";
+		};
+
+		trng0: trng@20080200 {
+			compatible = "qcom,qcc74x-trng";
+			reg = <0x20080200 0x1000>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_SEC0 QC7XX_PKA_CLK_WIFIPLL_160M>;
+			status = "disabled";
+		};
+
+		adc: adc@20002000 {
+			compatible = "qcom,qcc74x-adc";
+			reg = <0x20002000 0x1000>;
+			adc-controller;
+			interrupts = <GPADC_DMA_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_GPADC0 QC7XX_ADC_CLK_AUPLL>;
+			clk_div = <ADC_CLK_DIV_32>;
+			#io-channel-cells = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		emac0: emac@20083000 {
+			compatible = "qcom,qcc74x-emac";
+			reg = <0x20083000 0x1000>;
+			interrupts = <EMAC_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_EMAC0 QC7XX_CLK_DEFAULT>;
+			rx-clk-invert = <0>;
+			ref-clk-output = <0>;
+			status = "disabled";
+		};
+
+		mdio0: mdio@20083028 {
+			compatible = "qcom,qcc74x-mdio";
+			reg = <0x20083028 0x18>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_EMAC0 QC7XX_CLK_DEFAULT>;
+			clk_div = <39>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		crypto: sec_eng@20080000 {
+			compatible = "qcom,qcc74x-crypto";
+			reg = <0x20080000 0x1000>;
+			interrupts = <SEC_ENG_ID0_SHA_AES_TRNG_PKA_GMAC_IRQn IRQ_DEFAULT_PRIORITY 0>,
+				     <SEC_ENG_ID1_SHA_AES_TRNG_PKA_GMAC_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_SEC0 QC7XX_PKA_CLK_WIFIPLL_160M>;
+			status = "disabled";
+		};
+
+		mipi_dbi0: mipi_dbi@2001d000 {
+			compatible = "qcom,qcc74x-mipi-dbi";
+			reg = <0x2001d000 0x1000>;
+			interrupts = <DBI_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_DBI QC7XX_DBI_CLK_MCU_MUXPLL_160M>;
+			resets = <&reset QC7XX_RESET_DBI>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		sdhc0: sdhc@20084000 {
+			compatible = "qcom,qcc74x-sdhc";
+			reg = <0x20084000 0x1000>;
+			interrupts = <SDH_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_SDH0 0>;
+			resets = <&reset QC7XX_RESET_EXT_SDH>;
+			max-bus-freq = <48000000>;
+			min-bus-freq = <12000000>;
+			max-current-330 = <1024>;
+			bus-width = <4>;
+			power-delay-ms = <10>;
+			status = "disabled";
+		};
+
+		audio_adc: audio_adc@20017c00 {
+			compatible = "qcom,qcc74x-audio-adc";
+			reg = <0x20017c00 DT_SIZE_K(1)>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_AUADC0 QC7XX_CLK_DEFAULT>;
+			clk_div = <0>;
+			status = "disabled";
+		};
+
+		audio_dac: audio_dac@20022000 {
+			compatible = "qcom,qcc74x-audio-dac";
+			reg = <0x20022000 0x98>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_AUDAC0 QC7XX_CLK_DEFAULT>;
+			clk_div = <0>;
+			status = "disabled";
+		};
+
+		cam: cam@20041000 {
+			compatible = "qcom,qcc74x-cam";
+			reg = <0x20041000 0x100>;
+			interrupts = <DVP2BUS_INT0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_CAM0 QC7XX_CAM_CLK_WIFIPLL_96M>;
+			div = <3>;
+			status = "disabled";
+		};
+
+		ipc0: ipc@20013000 {
+			compatible = "qcom,qcc74x-ipc";
+			reg = <0x20013000 0x100>;
+			interrupts = <IPC0_CH0_IRQn IRQ_DEFAULT_PRIORITY 0>,
+				     <IPC0_CH1_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			status = "okay";
+		};
+
+		wifi: wifi@24800000 {
+			compatible = "qcom,qcc74x-wifi";
+			reg = <0x24800000 0x1000>;
+			interrupts = <WIFI_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_WIFI_NORMAL QC7XX_CLK_DEFAULT>;
+			resets = <&reset QC7XX_RESET_WIFI>;
+			status = "disabled";
+		};
+
+		bt_hci: bt_hci@28000000 {
+			compatible = "qcom,qcc74x-bt-hci";
+			reg = <0x28000000 0x1000>;
+			resets = <&reset QC7XX_RESET_BTDM>;
+			status = "disabled";
+		};
+
+		ir: ir@2001b000 {
+			compatible = "qcom,qcc74x-ir";
+			reg = <0x2001b000 0x100>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_IR QC7XX_IR_CLK_XCLK>;
+			divider = <19>;
+			status = "disabled";
+		};
+
+		usb: usb@20087000 {
+			compatible = "qcom,qcc74x-udc";
+			reg = <0x20087000 0x1000>;
+			interrupts = <USB_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock0 QC7XX_PERIPHERAL_USB20 QC7XX_USB20_CLK_WIFIPLL>;
+			resets = <&reset QC7XX_RESET_EXT_USB>;
+			num-bidir-endpoints = <8>;
+			maximum-speed = "high-speed";
+			status = "disabled";
+		};
+	};
+};

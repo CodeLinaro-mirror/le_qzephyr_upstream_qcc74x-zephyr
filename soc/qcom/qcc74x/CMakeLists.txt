@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 zephyr_sources(
@@ -17,7 +17,8 @@ if(CONFIG_PM)
 endif()
 
 zephyr_sources_ifdef(CONFIG_POWEROFF poweroff.c)
-zephyr_sources_ifdef(CONFIG_QCC74X_HBN_SHELL hbn_shell.c)
+zephyr_sources_ifdef(CONFIG_ANTI_ROLLBACK anti_rollback.c)
+zephyr_sources_ifdef(CONFIG_QCC74X_COREDUMP_FULL_MEMORY coredump_memory_regions.c)
 
 if(CONFIG_POWEROFF OR CONFIG_QCC74X_PM_PDS15)
   zephyr_sources(
@@ -35,6 +36,7 @@ zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_SYSTEM_TIMER
 )
 
 zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15
+  pm_uart.c
   pm_pds15_glue.c
   pm_pds15.c
   ${QC7XX_SDK_PATH}/drivers/sys/qcc74x/qcc74x_lp.c
