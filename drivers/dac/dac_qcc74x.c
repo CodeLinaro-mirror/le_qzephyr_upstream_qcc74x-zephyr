@@ -49,6 +49,13 @@ struct dac_qcc74x_cfg {
 #endif
 };
 
+#if defined(CONFIG_DAC_QCC74X_DMA)
+/* DAC driver runtime data (DMA path only) */
+struct dac_qcc74x_data {
+	struct k_sem dma_done; /**< Signalled by DMA callback on transfer completion. */
+};
+#endif
+
 /**
  * @brief System clock settle.
  */
@@ -144,6 +151,18 @@ static int dac_qcc74x_write_value(const struct device *dev, uint8_t channel, uin
 }
 
 #if defined(CONFIG_DAC_QCC74X_DMA)
+static void dac_qcc74x_dma_callback(const struct device *dma_dev, void *user_data,
+				     uint32_t channel, int status)
+{
+	ARG_UNUSED(dma_dev);
+	ARG_UNUSED(channel);
+	ARG_UNUSED(status);
+
+	struct dac_qcc74x_data *data = (struct dac_qcc74x_data *)user_data;
+
+	k_sem_give(&data->dma_done);
+}
+
 static int dac_qcc74x_write_dma(const struct device *dev, uint16_t len, uint32_t *source_address)
 {
 	const struct dac_qcc74x_cfg *conf = dev->config;
@@ -176,6 +195,57 @@ static int dac_qcc74x_write_dma(const struct device *dev, uint16_t len, uint32_t
 		return ret;
 	}
 	LOG_DBG("Wrote : %d values to dac using DMA from: %x.", len, *source_address);
+	return 0;
+}
+
+static int dac_qcc74x_write_dma_sync(const struct device *dev, uint16_t len,
+				      uint32_t *source_address, k_timeout_t timeout)
+{
+	const struct dac_qcc74x_cfg *conf = dev->config;
+	struct dac_qcc74x_data *data = dev->data;
+	struct dma_block_config dma_blk = {0};
+	struct dma_config dma_cfg = {0};
+	int ret = 0;
+
+	dma_blk.source_address = (uint32_t)source_address;
+	dma_blk.dest_address = conf->per_fifo_addr;
+	dma_blk.block_size = len;
+
+	dma_cfg.dma_slot = conf->dma_slot;
+	dma_cfg.channel_direction = MEMORY_TO_PERIPHERAL;
+	dma_cfg.source_data_size = 4;
+	dma_cfg.dest_data_size = 4;
+	dma_cfg.source_burst_length = 1;
+	dma_cfg.dest_burst_length = 1;
+	dma_cfg.block_count = 1;
+	dma_cfg.head_block = &dma_blk;
+	dma_cfg.dma_callback = dac_qcc74x_dma_callback;
+	dma_cfg.user_data = data;
+	dma_cfg.complete_callback_en = 1;
+
+	/* Reset semaphore before starting so a stale give cannot bypass the wait. */
+	k_sem_reset(&data->dma_done);
+
+	ret = dma_config(conf->dma_dev, conf->dma_channel, &dma_cfg);
+	if (ret) {
+		LOG_ERR("Error configuring DMA: %d", ret);
+		return ret;
+	}
+
+	ret = dma_start(conf->dma_dev, conf->dma_channel);
+	if (ret) {
+		LOG_ERR("Error starting DMA: %d", ret);
+		return ret;
+	}
+
+	ret = k_sem_take(&data->dma_done, timeout);
+	if (ret) {
+		LOG_ERR("Timed out waiting for DMA completion");
+		dma_stop(conf->dma_dev, conf->dma_channel);
+		return -EAGAIN;
+	}
+
+	LOG_DBG("Wrote %d bytes to DAC via DMA (sync) from: %x.", len, *source_address);
 	return 0;
 }
 #endif
@@ -282,6 +352,7 @@ static DEVICE_API(dac_qcc74x, dac_driver_api) = {
 	.base.channel_setup = dac_qcc74x_channel_setup,
 	.base.write_value = dac_qcc74x_write_value,
 	.write_dma = dac_qcc74x_write_dma,
+	.write_dma_sync = dac_qcc74x_write_dma_sync,
 };
 #else
 static DEVICE_API(dac, dac_driver_api) = {
@@ -296,12 +367,23 @@ static DEVICE_API(dac, dac_driver_api) = {
 	.dma_channel = (DT_INST_DMAS_CELL_BY_IDX(n, 0, channel)),                                  \
 	.dma_slot = (DT_INST_DMAS_CELL_BY_IDX(n, 0, slot)),                                        \
 	.per_fifo_addr = (DT_INST_DMAS_CELL_BY_IDX(n, 0, per_fifo_addr)),
+
+#define DAC_QCC74X_DATA_DEFINE(n)                                                                    \
+	static struct dac_qcc74x_data dac_qcc74x_data_##n = {                                       \
+		.dma_done = Z_SEM_INITIALIZER(dac_qcc74x_data_##n.dma_done, 0, 1),                  \
+	};
+
+#define DAC_QCC74X_DATA_PTR(n) &dac_qcc74x_data_##n
+
 #else
 #define DAC_QCC74X_DMA_CONF_INIT(n)
+#define DAC_QCC74X_DATA_DEFINE(n)
+#define DAC_QCC74X_DATA_PTR(n) NULL
 #endif
 
 #define DAC_QCC74X_DEVICE(n)                                                                         \
 	PINCTRL_DT_INST_DEFINE(n);                                                                 \
+	DAC_QCC74X_DATA_DEFINE(n)                                                                  \
                                                                                                    \
 	static const struct dac_qcc74x_cfg dac_qcc74x_config_##n = {                                   \
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),                                         \
@@ -311,7 +393,8 @@ static DEVICE_API(dac, dac_driver_api) = {
 		.clk_div = DT_PROP(DT_DRV_INST(n), clk_div),                                       \
 		DAC_QCC74X_DMA_CONF_INIT(n)};                                                        \
                                                                                                    \
-	DEVICE_DT_INST_DEFINE(n, dac_qcc74x_init, NULL, NULL, &dac_qcc74x_config_##n, POST_KERNEL,     \
+	DEVICE_DT_INST_DEFINE(n, dac_qcc74x_init, NULL, DAC_QCC74X_DATA_PTR(n),                    \
+			      &dac_qcc74x_config_##n, POST_KERNEL,                                 \
 			      CONFIG_DAC_INIT_PRIORITY, &dac_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(DAC_QCC74X_DEVICE)
