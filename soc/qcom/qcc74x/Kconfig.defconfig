@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 if SOC_SERIES_QCC74X
@@ -48,6 +48,7 @@ config FLASH_XIP_LENGTH
 
 config PSRAM_LENGTH
 	hex "PSRAM length"
+	default $(dt_nodelabel_reg_size_hex,psram) if PSRAM
 	default 0
 	help
 	  Total PSRAM size in bytes (0 = disabled, 4 MB = 0x400000,
