@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
-identifier: qcc744m_evk
+identifier: qcc744m2_evk
 name: QCC744M Evaluation Kit
 type: mcu
 arch: riscv
