@@ -1,0 +1,19 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+config OTP_QCC74X
+	bool "Qualcomm QCC74x eFuse OTP driver"
+	default y
+	depends on OTP
+	help
+	  Exposes the QCC74x eFuse hardware through the Zephyr OTP API.
+	  Enables otp_shell commands (CONFIG_OTP_SHELL) for reading and
+	  optionally programming eFuse bytes on QCC74x platforms.
+
+config OTP_QCC74X_SIZE
+	int "eFuse size in bytes"
+	default 512
+	depends on OTP_QCC74X
+	help
+	  Total eFuse size in bytes. Must match the `size` property of the
+	  efuse DTS node (default 512 bytes for QCC748).
