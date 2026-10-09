@@ -929,15 +929,21 @@ out:
 static int qc7xx_wifi_disconnect(const struct device *dev)
 {
 	struct qc7xx_wifi_runtime *data = dev->data;
-	bool disconnecting = data == &qc7xx_data && data->state == QC7XX_STA_CONNECTED;
+	uint8_t prev_state = data->state;
+	bool disconnecting = data == &qc7xx_data && (prev_state == QC7XX_STA_CONNECTED ||
+						     prev_state == QC7XX_STA_CONNECTING);
 
 	if (disconnecting) {
 		data->state = QC7XX_STA_DISCONNECTING;
+		data->conn_requested = false;
+		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
+			wifi_mgmr_sta_autoconnect_disable();
+		}
 	}
 
 	if (wifi_sta_disconnect() != 0) {
 		if (disconnecting) {
-			data->state = QC7XX_STA_CONNECTED;
+			data->state = prev_state;
 		}
 		return -EAGAIN;
 	}
@@ -1119,12 +1125,14 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 
 	data->state = QC7XX_STA_CONNECTING;
 	data->status.connected = false;
+	data->conn_requested = true;
 
 	if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
 		ret = wifi_mgmr_sta_autoconnect_enable();
 		if (ret != 0) {
 			data->state = QC7XX_STA_STARTED;
 			data->status.mfp = WIFI_MFP_DISABLE;
+			data->conn_requested = false;
 			return -EIO;
 		}
 	}
@@ -1133,6 +1141,7 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	if (ret != 0) {
 		data->state = QC7XX_STA_STARTED;
 		data->status.mfp = WIFI_MFP_DISABLE;
+		data->conn_requested = false;
 		return -EIO;
 	}
 
@@ -2216,11 +2225,20 @@ static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 	}
 
 	if (disconnecting) {
+		qc7xx_data.conn_requested = false;
 		qc7xx_data.state = QC7XX_STA_STARTED;
-	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U) {
+	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U &&
+		   qc7xx_data.conn_requested) {
 		qc7xx_data.state = QC7XX_STA_CONNECTING;
 		wifi_mgmr_sta_autoconnect_enable();
 	} else {
+		/* Nothing requested: staying at CONNECTING would reject every
+		 * later connect request with -EALREADY.
+		 */
+		qc7xx_data.conn_requested = false;
+		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
+			wifi_mgmr_sta_autoconnect_disable();
+		}
 		qc7xx_data.state = QC7XX_STA_STARTED;
 	}
 }

@@ -61,6 +61,8 @@ struct qc7xx_wifi_runtime {
 	uint32_t monitor_rx_count;
 	uint32_t monitor_rx_dropped;
 	uint8_t state;
+	/* A user-requested connection is outstanding. */
+	bool conn_requested;
 };
 
 extern struct net_if *qc7xx_wifi_iface;
