@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+&pinctrl {
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_RXD_GPIO30>,
+				 <UART1_TXD_GPIO29>,
+				 <UART1_CTS_GPIO28>,
+				 <UART1_RTS_GPIO27>;
+			bias-pull-up;
+			input-enable;
+		};
+	};
+
+	uart1_sleep: uart1_sleep {
+		group1 {
+			pinmux = <UART1_RXD_GPIO30>,
+				 <UART1_TXD_GPIO29>;
+			bias-disable;
+		};
+	};
+
+};

@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+identifier: qcc748m3_evk
+name: QCC748M-3 Evaluation Kit
+type: mcu
+arch: riscv
+ram: 480
+toolchain:
+  - zephyr
+supported:
+  - adc
+  - bluetooth
+  - can
+  - clock_control
+  - comparator
+  - counter
+  - crypto
+  - dac
+  - dma
+  - eeprom
+  - entropy
+  - flash
+  - ethernet
+  - gpio
+  - hwinfo
+  - i2c
+  - i2s
+  - ir
+  - mipi_dbi
+  - net
+  - netif:eth
+  - netif:wifi
+  - nvs
+  - pwm
+  - reset
+  - rtc
+  - sdhc
+  - serial
+  - spi
+  - uart
+  - usart
+  - usb
+  - usbd
+  - usb_device
+  - video
+  - watchdog
+  - wifi
+vendor: qcom

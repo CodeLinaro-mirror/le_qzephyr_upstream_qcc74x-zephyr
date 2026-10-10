@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+board:
+  name: qcc743m1r_evk
+  full_name: QCC743M-1 Evaluation Kit
+  vendor: qcom
+  socs:
+    - name: qcc7431

@@ -1,3 +1,0 @@
-&psram {
-	reg = <0xa8000000 DT_SIZE_M(4)>;
-};

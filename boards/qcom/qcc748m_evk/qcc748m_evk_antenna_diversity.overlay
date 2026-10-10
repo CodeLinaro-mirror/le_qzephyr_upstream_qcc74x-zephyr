@@ -1,7 +1,0 @@
-/ {
-	wifi_antenna_diversity: wifi-antenna-diversity {
-		compatible = "qualcomm,qcc74x-antenna-diversity";
-		select-gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
-		status = "okay";
-	};
-};
