@@ -120,6 +120,7 @@ struct i2c_qcc74x_data {
 	bool is_10_bits_address;
 	struct ring_buf buffer;
 	uint8_t buffer_data[I2C_MAX_PACKET_LENGTH];
+	struct k_mutex bus_mutex;  /* per-controller bus lock for multi-thread safety */
 	struct k_sem async_xfer_lock;
 	struct k_sem xfer_done_sem;
 	volatile i2c_qcc74x_state_t state;
@@ -127,6 +128,7 @@ struct i2c_qcc74x_data {
 	uint32_t tx_remaining;
 	uint32_t rx_total;
 	uint32_t rx_received;
+	uint32_t saved_dev_config; /* saved at configure time, restored on PM resume */
 #ifdef CONFIG_I2C_QCC74X_DMA
 	struct k_sem dma_done_sem; /**< DMA done semaphore. */
 	struct k_sem async_dma_work_sem;
@@ -1109,6 +1111,7 @@ static void i2c_qcc74x_async_done(const struct device *dev, struct i2c_qcc74x_da
 	data->addr = 0;
 
 	k_sem_give(&data->async_xfer_lock);
+	k_mutex_unlock(&data->bus_mutex);  /* release bus after async transfer completes */
 #ifdef CONFIG_I2C_QCC74X_DMA
 	/* Wake up the transfer_cb wait loop so it can exit */
 	k_sem_give(&data->async_dma_work_sem);
@@ -1582,16 +1585,21 @@ static int32_t i2c_qcc74x_configure(const struct device *const dev, const uint32
 		LOG_DBG("10 bit addressing for I2C will be used!");
 	}
 
+	data->saved_dev_config = dev_config;
+
 	return 0;
 }
 
 static int i2c_qcc74x_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,
 			     uint16_t addr)
 {
+	struct i2c_qcc74x_data *data = dev->data;
 	uint8_t current_msg = 0U;
 	int32_t ret = 0;
 
 	__ASSERT((msgs != NULL), "Messages array is NULL");
+
+	k_mutex_lock(&data->bus_mutex, K_FOREVER);
 
 	i2c_qcc74x_set_slave_address(dev, addr);
 
@@ -1623,12 +1631,14 @@ static int i2c_qcc74x_transfer(const struct device *dev, struct i2c_msg *msgs, u
 		}
 
 		if (ret != 0U) {
+			k_mutex_unlock(&data->bus_mutex);
 			return ret;
 		}
 
 		current_msg += consecutive_msgs + 1;
 	}
 
+	k_mutex_unlock(&data->bus_mutex);
 	LOG_DBG("Processing I2C messages completed");
 	return 0;
 }
@@ -1644,8 +1654,15 @@ static int i2c_qcc74x_transfer_cb(const struct device *dev, struct i2c_msg *msgs
 		return -EINVAL;
 	}
 
+	res = k_mutex_lock(&data->bus_mutex, K_NO_WAIT);
+	if (res != 0) {
+		return -EWOULDBLOCK;
+	}
+
+	/* Also guard against concurrent async re-entry */
 	res = k_sem_take(&data->async_xfer_lock, K_NO_WAIT);
 	if (res != 0) {
+		k_mutex_unlock(&data->bus_mutex);
 		return -EWOULDBLOCK;
 	}
 
@@ -1687,6 +1704,81 @@ static int i2c_qcc74x_transfer_cb(const struct device *dev, struct i2c_msg *msgs
  * @retval 0 on success.
  * @retval -errno on failure.
  */
+#ifdef CONFIG_PM_DEVICE
+static void i2c_qcc74x_restore_hw_state(const struct device *const dev)
+{
+	struct i2c_qcc74x_data *data = dev->data;
+
+	LOG_INF("PM: restore_hw_state saved_dev_config=0x%08x", data->saved_dev_config);
+	if (data->saved_dev_config != 0U) {
+		i2c_qcc74x_configure(dev, data->saved_dev_config);
+		LOG_INF("PM: HW state restored");
+	} else {
+		LOG_WRN("PM: no saved config, HW state NOT restored");
+	}
+}
+
+static int i2c_qcc74x_pm_control(const struct device *dev,
+				  enum pm_device_action action)
+{
+	const struct i2c_qcc74x_config *config = dev->config;
+	int ret = 0;
+
+	LOG_INF("PM: action=%d (%s)", (int)action,
+		action == PM_DEVICE_ACTION_RESUME  ? "RESUME"  :
+		action == PM_DEVICE_ACTION_SUSPEND ? "SUSPEND" : "OTHER");
+
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		LOG_INF("PM RESUME: applying default pinctrl");
+		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
+		if (ret < 0) {
+			LOG_ERR("PM RESUME: pinctrl default failed: %d", ret);
+			return ret;
+		}
+
+		LOG_INF("PM RESUME: enabling clock");
+		ret = clock_control_on(config->clock_dev,
+				       (clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (ret != 0 && ret != -EALREADY) {
+			LOG_ERR("PM RESUME: clock_on failed: %d", ret);
+			return ret;
+		}
+		LOG_INF("PM RESUME: clock enabled (ret=%d)", ret);
+
+		i2c_qcc74x_restore_hw_state(dev);
+		LOG_INF("PM RESUME: done");
+		break;
+
+	case PM_DEVICE_ACTION_SUSPEND:
+		LOG_INF("PM SUSPEND: applying sleep pinctrl");
+		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_SLEEP);
+		if (ret < 0 && ret != -ENOENT) {
+			LOG_ERR("PM SUSPEND: pinctrl sleep failed: %d", ret);
+			return ret;
+		}
+		LOG_INF("PM SUSPEND: pinctrl sleep ret=%d (ENOENT=%d means no sleep state)",
+			ret, -ENOENT);
+
+		LOG_INF("PM SUSPEND: gating clock");
+		ret = clock_control_off(config->clock_dev,
+					(clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (ret != 0) {
+			LOG_ERR("PM SUSPEND: clock_off failed: %d", ret);
+			return ret;
+		}
+		LOG_INF("PM SUSPEND: done");
+		break;
+
+	default:
+		LOG_WRN("PM: unsupported action %d", (int)action);
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_PM_DEVICE */
+
 static int i2c_qcc74x_init(const struct device *dev)
 {
 	const struct i2c_qcc74x_config *const config = dev->config;
@@ -1711,6 +1803,7 @@ static int i2c_qcc74x_init(const struct device *dev)
 	}
 
 	ring_buf_init(&data->buffer, I2C_MAX_PACKET_LENGTH, data->buffer_data);
+	k_mutex_init(&data->bus_mutex);
 	k_sem_init(&data->async_xfer_lock, 1, 1);
 	k_sem_init(&data->xfer_done_sem, 0, K_SEM_MAX_LIMIT);
 
@@ -1801,7 +1894,7 @@ static const struct i2c_driver_api i2c_qcc74x_api = {
 
 #define I2C_QCC74X_GET_TIMEOUT_CHILD(child)                                                          \
 	COND_CODE_1(DT_NODE_HAS_PROP(child, timeout),                                              \
-		   (DT_PROP(child, timeout)), (0))
+		   (DT_PROP(child, timeout)), (0)) +
 
 #define I2C_QCC74X_IRQ_HANDLER_DECL(n) static void i2c_qcc74x_config_func_##n(const struct device *dev);
 
@@ -1828,10 +1921,14 @@ static const struct i2c_driver_api i2c_qcc74x_api = {
 		.dts_freq = DT_INST_PROP(n, clock_frequency),                                      \
 		I2C_QCC74X_IRQ_HANDLER_FUNC(n),                                                      \
 		.reset = RESET_DT_SPEC_INST_GET(n),                                                \
-		.timeout = I2C_QCC74X_GET_TIMEOUT(n),                                                \
+		.timeout = I2C_QCC74X_GET_TIMEOUT(n),                                                 \
 		IF_ENABLED(CONFIG_I2C_QCC74X_DMA, (.dma = DMAS_DECL(n),)) };                         \
-	I2C_DEVICE_DT_INST_DEFINE(n, i2c_qcc74x_init, NULL, &i2c##n##_qcc74x_data, &i2c_qcc74x_cfg_##n,  \
-				  POST_KERNEL, CONFIG_I2C_INIT_PRIORITY, &i2c_qcc74x_api);           \
+	IF_ENABLED(CONFIG_PM_DEVICE,                                                         \
+		(PM_DEVICE_DT_INST_DEFINE(n, i2c_qcc74x_pm_control);))                      \
+	I2C_DEVICE_DT_INST_DEFINE(n, i2c_qcc74x_init,                                       \
+				  PM_DEVICE_DT_INST_GET(n),                                  \
+				  &i2c##n##_qcc74x_data, &i2c_qcc74x_cfg_##n,               \
+				  POST_KERNEL, CONFIG_I2C_INIT_PRIORITY, &i2c_qcc74x_api);   \
 	I2C_QCC74X_IRQ_HANDLER(n)
 
 DT_INST_FOREACH_STATUS_OKAY(I2C_QCC74X_DEVICE)
