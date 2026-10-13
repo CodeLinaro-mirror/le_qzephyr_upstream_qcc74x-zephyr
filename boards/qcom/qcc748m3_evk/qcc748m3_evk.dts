@@ -60,7 +60,8 @@
 			#size-cells = <1>;
 
 			/* Boot2 layout from HAL bsp/board/qcc74xdk/qcc74x/
-			 * partition_cfg_4M.toml. The upper Flash area is unassigned.
+			 * partition_cfg_4M.toml. Both firmware slots are 2 MiB;
+			 * persistent partitions follow them in the upper Flash area.
 			 * MCUboot requires a separate boot/update layout.
 			 */
 
@@ -88,32 +89,32 @@
 
 			slot1_partition: mfg_partition: partition@210000 {
 				label = "image-1";
-				reg = <0x210000 0x168000>;
+				reg = <0x210000 0x200000>;
 			};
 
-			storage_partition: media_partition: partition@378000 {
+			storage_partition: media_partition: partition@410000 {
 				label = "media";
-				reg = <0x378000 0x71000>;
+				reg = <0x410000 0x71000>;
 			};
 
-			psm_partition: partition@3e9000 {
+			psm_partition: partition@481000 {
 				label = "PSM";
-				reg = <0x3e9000 0x8000>;
+				reg = <0x481000 0x8000>;
 			};
 
-			key_partition: partition@3f1000 {
+			key_partition: partition@489000 {
 				label = "KEY";
-				reg = <0x3f1000 0x2000>;
+				reg = <0x489000 0x2000>;
 			};
 
-			data_partition: partition@3f3000 {
+			data_partition: partition@48b000 {
 				label = "DATA";
-				reg = <0x3f3000 0x5000>;
+				reg = <0x48b000 0x5000>;
 			};
 
-			factory_partition: partition@3f8000 {
+			factory_partition: partition@490000 {
 				label = "factory";
-				reg = <0x3f8000 0x8000>;
+				reg = <0x490000 0x8000>;
 			};
 		};
 	};
