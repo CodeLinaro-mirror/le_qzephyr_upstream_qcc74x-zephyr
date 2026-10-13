@@ -1925,8 +1925,6 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 		status->iface_mode = WIFI_MODE_AP;
 		memcpy(status->bssid, data->mac_addr, WIFI_MAC_ADDR_LEN);
 		status->channel = data->status.channel;
-		status->band = status->channel > 14U ? WIFI_FREQ_BAND_5_GHZ :
-							WIFI_FREQ_BAND_2_4_GHZ;
 
 		phy_mode = wifi_mgmr_get_mode(1U);
 		status->link_mode = qc7xx_wifi_link_mode_from_phy(phy_mode);
@@ -1937,7 +1935,17 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 
 		if (wifi_mgmr_get_ap_info(&ap) == 0) {
 			status->security = qc7xx_wifi_security_to_zephyr(ap.ucSecurity);
+			/* Report the channel the AP actually operates on: it may
+			 * differ from the configured one, as the AP follows the
+			 * STA channel when the STA is connected.
+			 */
+			if (ap.ucChannel != 0U) {
+				status->channel = ap.ucChannel;
+			}
 		}
+
+		status->band = status->channel > 14U ? WIFI_FREQ_BAND_5_GHZ :
+							WIFI_FREQ_BAND_2_4_GHZ;
 #endif
 	} else {
 		status->iface_mode = WIFI_MODE_UNKNOWN;
