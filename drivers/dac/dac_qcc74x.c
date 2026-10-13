@@ -52,7 +52,13 @@ struct dac_qcc74x_cfg {
 #if defined(CONFIG_DAC_QCC74X_DMA)
 /* DAC driver runtime data (DMA path only) */
 struct dac_qcc74x_data {
+	struct k_mutex dma_lock; /**< Protects DMA setup and shared state. */
+	struct k_sem dma_idle; /**< Signalled when the DMA channel is available. */
 	struct k_sem dma_done; /**< Signalled by DMA callback on transfer completion. */
+	atomic_t dma_in_flight;
+	int dma_status;
+	uint16_t dma_values[2];
+	uint32_t dma_buf[4] __aligned(32);
 };
 #endif
 
@@ -154,64 +160,91 @@ static int dac_qcc74x_write_value(const struct device *dev, uint8_t channel, uin
 static void dac_qcc74x_dma_callback(const struct device *dma_dev, void *user_data,
 				     uint32_t channel, int status)
 {
-	ARG_UNUSED(dma_dev);
-	ARG_UNUSED(channel);
-	ARG_UNUSED(status);
-
 	struct dac_qcc74x_data *data = (struct dac_qcc74x_data *)user_data;
 
+	ARG_UNUSED(dma_dev);
+	ARG_UNUSED(channel);
+
+
+	if (!atomic_cas(&data->dma_in_flight, 1, 0)) {
+		return;
+	}
+
+	data->dma_status = status;
 	k_sem_give(&data->dma_done);
+	k_sem_give(&data->dma_idle);
 }
 
-static int dac_qcc74x_write_dma(const struct device *dev, uint16_t len, uint32_t *source_address)
+static int dac_qcc74x_prepare_dma_value(const struct device *dev, uint8_t channel,
+						uint32_t value)
 {
-	const struct dac_qcc74x_cfg *conf = dev->config;
-	struct dma_block_config dma_blk = {0};
-	struct dma_config dma_cfg = {0};
-	int ret = 0;
+	const struct dac_qcc74x_cfg *cfg = dev->config;
+	struct dac_qcc74x_data *data = dev->data;
+	bool channel_a;
+	bool channel_b;
+	uint32_t config_val;
+	uint32_t dma_val;
+	uint32_t sample;
 
-	dma_blk.source_address = (uint32_t)source_address;
-	dma_blk.dest_address = conf->per_fifo_addr;
-	dma_blk.block_size = len;
-
-	dma_cfg.dma_slot = conf->dma_slot;
-	dma_cfg.channel_direction = MEMORY_TO_PERIPHERAL;
-	dma_cfg.source_data_size = 4;
-	dma_cfg.dest_data_size = 4;
-	dma_cfg.source_burst_length = 1;
-	dma_cfg.dest_burst_length = 1;
-	dma_cfg.block_count = 1;
-	dma_cfg.head_block = &dma_blk;
-
-	ret = dma_config(conf->dma_dev, conf->dma_channel, &dma_cfg);
-	if (ret) {
-		LOG_ERR("Error configuring DMA: %d", ret);
-		return ret;
+	if (channel > 1) {
+		return -EINVAL;
 	}
 
-	ret = dma_start(conf->dma_dev, conf->dma_channel);
-	if (ret) {
-		LOG_ERR("Error starting DMA: %d", ret);
-		return ret;
+	channel_a = (sys_read32(cfg->base_reg_glb + GLB_GPDAC_ACTRL_OFFSET) &
+			    (GLB_GPDAC_A_EN | GLB_GPDAC_IOA_EN)) != 0U;
+	channel_b = (sys_read32(cfg->base_reg_glb + GLB_GPDAC_BCTRL_OFFSET) &
+			    (GLB_GPDAC_B_EN | GLB_GPDAC_IOB_EN)) != 0U;
+	if ((channel == 0 && !channel_a) || (channel == 1 && !channel_b)) {
+		return -EINVAL;
 	}
-	LOG_DBG("Wrote : %d values to dac using DMA from: %x.", len, *source_address);
+
+	data->dma_values[channel] = value & 0x0fffU;
+	config_val = sys_read32(cfg->base_reg_gpip + GPIP_GPDAC_CONFIG_OFFSET);
+	config_val &= ~GPIP_GPDAC_CH_A_SEL_MASK;
+	config_val &= ~GPIP_GPDAC_CH_B_SEL_MASK;
+
+	if (channel_a && channel_b) {
+		config_val |= (1U << GPIP_GPDAC_CH_A_SEL_SHIFT);
+		config_val |= (1U << GPIP_GPDAC_CH_B_SEL_SHIFT);
+		sample = ((uint32_t)data->dma_values[1] << 16) | data->dma_values[0];
+	} else if (channel_a) {
+		config_val |= (1U << GPIP_GPDAC_CH_A_SEL_SHIFT);
+		sample = data->dma_values[0];
+	} else {
+		config_val |= (1U << GPIP_GPDAC_CH_B_SEL_SHIFT);
+		sample = data->dma_values[1];
+	}
+
+	dma_val = sys_read32(cfg->base_reg_gpip + GPIP_GPDAC_DMA_CONFIG_OFFSET);
+	dma_val &= ~GPIP_GPDAC_DMA_FORMAT_MASK;
+	if (channel_a && channel_b) {
+		dma_val |= (1U << GPIP_GPDAC_DMA_FORMAT_SHIFT);
+	}
+	dma_val |= GPIP_GPDAC_DMA_TX_EN;
+	sys_write32(dma_val, cfg->base_reg_gpip + GPIP_GPDAC_DMA_CONFIG_OFFSET);
+	sys_write32(config_val, cfg->base_reg_gpip + GPIP_GPDAC_CONFIG_OFFSET);
+
+	for (size_t i = 0; i < ARRAY_SIZE(data->dma_buf); i++) {
+		data->dma_buf[i] = sample;
+	}
+
 	return 0;
 }
 
-static int dac_qcc74x_write_dma_sync(const struct device *dev, uint16_t len,
-				      uint32_t *source_address, k_timeout_t timeout)
+static int dac_qcc74x_start_dma_locked(const struct device *dev, uint16_t len,
+					       uint32_t *source_address)
 {
-	const struct dac_qcc74x_cfg *conf = dev->config;
+	const struct dac_qcc74x_cfg *cfg = dev->config;
 	struct dac_qcc74x_data *data = dev->data;
 	struct dma_block_config dma_blk = {0};
 	struct dma_config dma_cfg = {0};
-	int ret = 0;
+	int ret;
 
 	dma_blk.source_address = (uint32_t)source_address;
-	dma_blk.dest_address = conf->per_fifo_addr;
+	dma_blk.dest_address = cfg->per_fifo_addr;
 	dma_blk.block_size = len;
 
-	dma_cfg.dma_slot = conf->dma_slot;
+	dma_cfg.dma_slot = cfg->dma_slot;
 	dma_cfg.channel_direction = MEMORY_TO_PERIPHERAL;
 	dma_cfg.source_data_size = 4;
 	dma_cfg.dest_data_size = 4;
@@ -223,33 +256,157 @@ static int dac_qcc74x_write_dma_sync(const struct device *dev, uint16_t len,
 	dma_cfg.user_data = data;
 	dma_cfg.complete_callback_en = 1;
 
-	/* Reset semaphore before starting so a stale give cannot bypass the wait. */
-	k_sem_reset(&data->dma_done);
-
-	ret = dma_config(conf->dma_dev, conf->dma_channel, &dma_cfg);
+	ret = dma_config(cfg->dma_dev, cfg->dma_channel, &dma_cfg);
 	if (ret) {
 		LOG_ERR("Error configuring DMA: %d", ret);
 		return ret;
 	}
 
-	ret = dma_start(conf->dma_dev, conf->dma_channel);
+	ret = dma_start(cfg->dma_dev, cfg->dma_channel);
 	if (ret) {
 		LOG_ERR("Error starting DMA: %d", ret);
 		return ret;
 	}
 
-	ret = k_sem_take(&data->dma_done, timeout);
+	LOG_DBG("Started DMA transfer of %d bytes to DAC from: %p.", len, (void *)source_address);
+	return 0;
+}
+
+static void dac_qcc74x_abort_dma(const struct device *dev)
+{
+	const struct dac_qcc74x_cfg *cfg = dev->config;
+	struct dac_qcc74x_data *data = dev->data;
+
+	dma_stop(cfg->dma_dev, cfg->dma_channel);
+	if (atomic_cas(&data->dma_in_flight, 1, 0)) {
+		k_sem_give(&data->dma_idle);
+	}
+}
+
+static int dac_qcc74x_wait_dma(const struct device *dev, k_timepoint_t end_time)
+{
+	struct dac_qcc74x_data *data = dev->data;
+	int ret;
+
+	ret = k_sem_take(&data->dma_done, sys_timepoint_timeout(end_time));
 	if (ret) {
 		LOG_ERR("Timed out waiting for DMA completion");
-		dma_stop(conf->dma_dev, conf->dma_channel);
+		dac_qcc74x_abort_dma(dev);
 		return -EAGAIN;
 	}
 
-	LOG_DBG("Wrote %d bytes to DAC via DMA (sync) from: %x.", len, *source_address);
-	return 0;
+	return data->dma_status;
+}
+
+static int dac_qcc74x_write_dma(const struct device *dev, uint16_t len,
+					uint32_t *source_address)
+{
+	struct dac_qcc74x_data *data = dev->data;
+	int ret;
+
+	ret = k_sem_take(&data->dma_idle, K_NO_WAIT);
+	if (ret) {
+		return -EBUSY;
+	}
+
+	k_mutex_lock(&data->dma_lock, K_FOREVER);
+	k_sem_reset(&data->dma_done);
+	data->dma_status = 0;
+	atomic_set(&data->dma_in_flight, 1);
+	ret = dac_qcc74x_start_dma_locked(dev, len, source_address);
+	k_mutex_unlock(&data->dma_lock);
+
+	if (ret) {
+		dac_qcc74x_abort_dma(dev);
+	}
+
+	return ret;
+}
+
+static int dac_qcc74x_write_dma_sync(const struct device *dev, uint16_t len,
+					     uint32_t *source_address, k_timeout_t timeout)
+{
+	struct dac_qcc74x_data *data = dev->data;
+	k_timepoint_t end_time = sys_timepoint_calc(timeout);
+	int ret;
+
+	ret = k_sem_take(&data->dma_idle, sys_timepoint_timeout(end_time));
+	if (ret) {
+		return -EAGAIN;
+	}
+
+	k_mutex_lock(&data->dma_lock, K_FOREVER);
+	k_sem_reset(&data->dma_done);
+	data->dma_status = 0;
+	atomic_set(&data->dma_in_flight, 1);
+	ret = dac_qcc74x_start_dma_locked(dev, len, source_address);
+	k_mutex_unlock(&data->dma_lock);
+
+	if (ret) {
+		dac_qcc74x_abort_dma(dev);
+		return ret;
+	}
+
+	return dac_qcc74x_wait_dma(dev, end_time);
+}
+
+int dac_qcc74x_write_dma_value(const struct device *dev, uint8_t channel, uint32_t value)
+{
+	struct dac_qcc74x_data *data = dev->data;
+	int ret;
+
+	ret = k_sem_take(&data->dma_idle, K_NO_WAIT);
+	if (ret) {
+		return -EBUSY;
+	}
+
+	k_mutex_lock(&data->dma_lock, K_FOREVER);
+	k_sem_reset(&data->dma_done);
+	data->dma_status = 0;
+	atomic_set(&data->dma_in_flight, 1);
+	ret = dac_qcc74x_prepare_dma_value(dev, channel, value);
+	if (!ret) {
+		ret = dac_qcc74x_start_dma_locked(dev, sizeof(data->dma_buf), data->dma_buf);
+	}
+	k_mutex_unlock(&data->dma_lock);
+
+	if (ret) {
+		dac_qcc74x_abort_dma(dev);
+	}
+
+	return ret;
+}
+
+int dac_qcc74x_write_dma_value_sync(const struct device *dev, uint8_t channel,
+					    uint32_t value, k_timeout_t timeout)
+{
+	struct dac_qcc74x_data *data = dev->data;
+	k_timepoint_t end_time = sys_timepoint_calc(timeout);
+	int ret;
+
+	ret = k_sem_take(&data->dma_idle, sys_timepoint_timeout(end_time));
+	if (ret) {
+		return -EAGAIN;
+	}
+
+	k_mutex_lock(&data->dma_lock, K_FOREVER);
+	k_sem_reset(&data->dma_done);
+	data->dma_status = 0;
+	atomic_set(&data->dma_in_flight, 1);
+	ret = dac_qcc74x_prepare_dma_value(dev, channel, value);
+	if (!ret) {
+		ret = dac_qcc74x_start_dma_locked(dev, sizeof(data->dma_buf), data->dma_buf);
+	}
+	k_mutex_unlock(&data->dma_lock);
+
+	if (ret) {
+		dac_qcc74x_abort_dma(dev);
+		return ret;
+	}
+
+	return dac_qcc74x_wait_dma(dev, end_time);
 }
 #endif
-
 static int dac_qcc74x_channel_setup(const struct device *dev,
 				  const struct dac_channel_cfg *channel_cfg)
 {
@@ -293,6 +450,15 @@ static int dac_qcc74x_channel_setup(const struct device *dev,
  */
 static int dac_qcc74x_init(const struct device *dev)
 {
+#if defined(CONFIG_DAC_QCC74X_DMA)
+	struct dac_qcc74x_data *data = dev->data;
+
+	k_mutex_init(&data->dma_lock);
+	k_sem_init(&data->dma_idle, 1, 1);
+	k_sem_init(&data->dma_done, 0, 1);
+	atomic_set(&data->dma_in_flight, 0);
+	data->dma_status = 0;
+#endif
 	const struct dac_qcc74x_cfg *cfg = dev->config;
 	uint32_t tmp_val = 0U;
 	uint8_t clk_div = cfg->clk_div;
