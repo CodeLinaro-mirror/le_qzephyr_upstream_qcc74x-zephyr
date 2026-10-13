@@ -4,15 +4,63 @@
  */
 
 #include <zephyr/arch/riscv/arch.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/init.h>
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/pm.h>
+#include <zephyr/pm/state.h>
 #include <zephyr/spinlock.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys_clock.h>
 #include <zephyr/soc/qualcomm/qcc74x_pm_diag.h>
+
+/* Check the enabled states used by the policy, without requiring sample labels. */
+#define LPFW_STATE_IS(node, substate)                                                        \
+	(PM_STATE_DT_INIT(node) == PM_STATE_SUSPEND_TO_RAM &&                                 \
+	 DT_PROP_OR(node, substate_id, 0) == (substate))
+
+#define LPFW_STATE_SELECTED(node)                                                           \
+	((IS_ENABLED(CONFIG_QCC74X_PM_PDS1) && LPFW_STATE_IS(node, 1)) ||                      \
+	 (IS_ENABLED(CONFIG_QCC74X_PM_PDS15) && LPFW_STATE_IS(node, 15)))
+
+#define LPFW_PDS1_VALIDATE(node)                                                            \
+	BUILD_ASSERT(!LPFW_STATE_IS(node, 1) || IS_ENABLED(CONFIG_QCC74X_PM_PDS1),             \
+		     DT_NODE_PATH(node) ": PDS1 state requires CONFIG_QCC74X_PM_PDS1")
+
+#define LPFW_PDS15_VALIDATE(node)                                                           \
+	BUILD_ASSERT(!IS_ENABLED(CONFIG_QCC74X_PM_PDS1) || !LPFW_STATE_IS(node, 15),           \
+		     DT_NODE_PATH(node) ": PDS15 state conflicts with PDS1 backend")
+
+#define LPFW_DEVICE_PM_VALIDATE(node)                                                       \
+	BUILD_ASSERT(!LPFW_STATE_SELECTED(node) || !DT_PROP(node, zephyr_pm_device_disabled), \
+		     DT_NODE_PATH(node) ": LPFW state must not set zephyr,pm-device-disabled")
+
+#define LPFW_STATE_APPLY(cpu, prop, idx, fn)                                                 \
+	COND_CODE_1(DT_NODE_HAS_STATUS_OKAY(DT_PHANDLE_BY_IDX(cpu, prop, idx)),                \
+		    (fn(DT_PHANDLE_BY_IDX(cpu, prop, idx))), ())
+
+#define LPFW_STATE_COUNT(cpu, prop, idx)                                                    \
+	COND_CODE_1(DT_NODE_HAS_STATUS_OKAY(DT_PHANDLE_BY_IDX(cpu, prop, idx)),                \
+		    (LPFW_STATE_SELECTED(DT_PHANDLE_BY_IDX(cpu, prop, idx))), (0))
+
+#if DT_NODE_HAS_PROP(DT_NODELABEL(cpu0), cpu_power_states)
+DT_FOREACH_PROP_ELEM_SEP_VARGS(DT_NODELABEL(cpu0), cpu_power_states, LPFW_STATE_APPLY,
+			       (;), LPFW_PDS1_VALIDATE);
+DT_FOREACH_PROP_ELEM_SEP_VARGS(DT_NODELABEL(cpu0), cpu_power_states, LPFW_STATE_APPLY,
+			       (;), LPFW_PDS15_VALIDATE);
+DT_FOREACH_PROP_ELEM_SEP_VARGS(DT_NODELABEL(cpu0), cpu_power_states, LPFW_STATE_APPLY,
+			       (;), LPFW_DEVICE_PM_VALIDATE);
+#define LPFW_SELECTED_STATE_COUNT                                                          \
+	(DT_FOREACH_PROP_ELEM_SEP(DT_NODELABEL(cpu0), cpu_power_states,                       \
+				 LPFW_STATE_COUNT, (+)) + 0)
+#else
+#define LPFW_SELECTED_STATE_COUNT 0
+#endif
+
+BUILD_ASSERT(!IS_ENABLED(CONFIG_QCC74X_PM_LPFW) || LPFW_SELECTED_STATE_COUNT == 1,
+	     "QCC74x LPFW requires exactly one enabled CPU state matching the selected backend");
 
 #ifndef CONFIG_QCC74X_PM_PDS15_LOG_LEVEL
 #define CONFIG_QCC74X_PM_PDS15_LOG_LEVEL LOG_LEVEL_NONE
@@ -27,7 +75,7 @@ LOG_MODULE_REGISTER(qcc74x_pm_power, CONFIG_QCC74X_PM_PDS15_LOG_LEVEL);
 		}                                                             \
 	} while (0)
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15.h>
 #endif
 
@@ -150,7 +198,7 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 		arch_cpu_atomic_idle(MSTATUS_IEN);
 		break;
 	case PM_STATE_SUSPEND_TO_RAM:
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 		(void)qcc74x_pm_pds15_enter(substate_id);
 		/* Return to the manager for UART RESUME before unmasking IRQs. */
 		break;
@@ -169,7 +217,7 @@ void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
 	qcc74x_pm_diag_record_exit(state, substate_id);
 #endif
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 	if (state == PM_STATE_SUSPEND_TO_RAM) {
 		qcc74x_pm_pds15_resume_complete(substate_id);
 	}

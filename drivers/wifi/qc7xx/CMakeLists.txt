@@ -34,4 +34,3 @@ if(CONFIG_OPENAMP AND CONFIG_WIFI_QCC75X)
     src/qc7xx_rpc_service.c
   )
 endif()
-

@@ -20,11 +20,14 @@ int soc_multi_heap_psram_add(void);
 /*
  * Allocate from the QCC74x SoC heap.
  *
- * Allocation priority follows heap registration order: ocram, then wram, then
- * psram after soc_multi_heap_psram_add() registers it.
+ * Allocation priority follows heap registration order: ocram, then wram without PSRAM;
+ * ocram, then psram in PSRAM-enabled builds.
  * The implementation currently uses 64-byte alignment for DMA/cache users.
  */
 void *soc_multi_malloc(size_t size);
+void *soc_multi_aligned_alloc(size_t align, size_t size);
+/* Internal OCRAM only; use for stacks that must not spill into PSRAM. */
+void *soc_multi_internal_aligned_alloc(size_t align, size_t size);
 void soc_multi_free(void *ptr);
 
 #ifdef __cplusplus
