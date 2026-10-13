@@ -1,7 +1,7 @@
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
-config SOC_SERIES_QCR373
+config SOC_SERIES_QCR3XX
 	select RISCV
 	select RISCV_PRIVILEGED
 	select RISCV_HAS_CLIC

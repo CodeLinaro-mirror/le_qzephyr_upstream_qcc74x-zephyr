@@ -3,8 +3,4 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "qcc75xm_evk.dts"
-
-&uart1 {
-	status = "disabled";
-};
+#include <qcom/qcr3xx/qcr3xx.dtsi>

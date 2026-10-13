@@ -32,7 +32,7 @@
 #include <qcc75x_hbn.h>
 #endif
 
-#ifdef CONFIG_SOC_SERIES_QCR373
+#ifdef CONFIG_SOC_SERIES_QCR3XX
 #include <zephyr/dt-bindings/clock/qcr373-clock.h>
 #include <qcr373_glb.h>
 #include <qcr373_hbn.h>
@@ -55,7 +55,7 @@ LOG_MODULE_REGISTER(clock_control_qcc74x, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 #define QC7XX_IS_SDH_CLK_SOURCE(type)                                                              \
 	(((type) == QC7XX_SDH_CLK_WIFIPLL_96M) || ((type) == QC7XX_SDH_CLK_TOP_AUPLL_DIV5))
 #endif
-#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR3XX)
 #define QC7XX_IS_SDH_CLK_SOURCE(type) ((type) == QC7XX_SDH_CLK_WIFIPLL_96M)
 #endif
 
@@ -153,7 +153,7 @@ static int clock_control_qcc74x_get_rate(const struct device *dev, clock_control
 	case QC7XX_PERIPHERAL_UART1:
 		type = QC7XX_DEVICE_TYPE_UART;
 		break;
-#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR3XX)
 	case QC7XX_PERIPHERAL_UART2:
 		type = QC7XX_DEVICE_TYPE_UART;
 		break;

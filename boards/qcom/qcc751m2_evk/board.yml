@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 board:
-  name: qcc75xm_evk
-  full_name: QCC75xM Evaluation Kit
+  name: qcc751m2_evk
+  full_name: QCC751M-2 Evaluation Kit
   vendor: qcom
   socs:
-    - name: qcc75x
+    - name: qcc7512
       variants:
         - name: cpu0
         - name: cpu1

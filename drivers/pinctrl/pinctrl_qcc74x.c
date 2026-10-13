@@ -10,7 +10,7 @@
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc74x-pinctrl.h>
 #elif defined(CONFIG_SOC_SERIES_QCC75X)
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcc75x-pinctrl.h>
-#elif defined(CONFIG_SOC_SERIES_QCR373)
+#elif defined(CONFIG_SOC_SERIES_QCR3XX)
 #include <zephyr/dt-bindings/pinctrl/qc7xx-qcr373-pinctrl.h>
 #endif
 

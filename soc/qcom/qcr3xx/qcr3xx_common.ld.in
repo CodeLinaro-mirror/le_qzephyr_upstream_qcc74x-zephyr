@@ -18,7 +18,7 @@
 #include <zephyr/linker/linker-defs.h>
 #include <zephyr/linker/linker-tool.h>
 
-#ifdef CONFIG_SOC_QCR373_NP
+#ifdef CONFIG_SOC_QCR3XX_NP
 #define NONECACHE_RAM_BASE \
 	DT_REG_ADDR_BY_NAME(DT_CHOSEN(zephyr_sram), noncacheable) + \
 	CONFIG_QCR373_OCRAM_SIZE_AP
@@ -46,7 +46,7 @@
 #endif
 
 #ifdef CONFIG_PSRAM
-#ifdef CONFIG_SOC_QCR373_NP
+#ifdef CONFIG_SOC_QCR3XX_NP
 #define PSRAM_BASE \
 	(DT_REG_ADDR(DT_NODELABEL(psram)) + CONFIG_QCR373_PSRAM_DATA_SIZE_AP)
 #define PSRAM_SIZE \
@@ -71,7 +71,7 @@
 
 /* user configurable */
 #define ROM_BASE                        CONFIG_FLASH_BASE_ADDRESS
-#ifdef CONFIG_SOC_QCR373_NP
+#ifdef CONFIG_SOC_QCR3XX_NP
 #define ROM_SIZE                        CONFIG_QCR373_CODE_SIZE_NP
 #else
 #define ROM_SIZE                        CONFIG_QCR373_CODE_SIZE_AP

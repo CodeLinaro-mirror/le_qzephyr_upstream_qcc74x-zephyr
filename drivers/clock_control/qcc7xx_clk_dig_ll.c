@@ -15,7 +15,7 @@
 #include <zephyr/dt-bindings/clock/qcc75x-clock.h>
 #include <qcc75x_clock.h>
 #endif
-#ifdef CONFIG_SOC_SERIES_QCR373
+#ifdef CONFIG_SOC_SERIES_QCR3XX
 #include <zephyr/dt-bindings/clock/qcr373-clock.h>
 #include <qcr373_clock.h>
 #endif

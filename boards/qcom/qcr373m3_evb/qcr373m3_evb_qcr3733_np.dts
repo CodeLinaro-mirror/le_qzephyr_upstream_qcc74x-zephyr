@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "qcr373_evk.dts"
+#include "qcr373m3_evb.dts"
 
 / {
 	chosen {

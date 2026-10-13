@@ -1,8 +1,8 @@
 # Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
-identifier: qcc75xm_evk
-name: QCC75xM Evaluation Kit
+identifier: qcc751m2_evk
+name: QCC751M-2 Evaluation Kit
 type: mcu
 arch: riscv
 ram: 480

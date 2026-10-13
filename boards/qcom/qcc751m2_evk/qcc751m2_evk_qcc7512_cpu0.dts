@@ -3,15 +3,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "qcc75xm_evk.dts"
+#include "qcc751m2_evk.dts"
 
-/ {
-	chosen {
-		zephyr,console = &uart1;
-		zephyr,shell-uart = &uart1;
-	};
-};
-
-&uart0 {
+&uart1 {
 	status = "disabled";
 };

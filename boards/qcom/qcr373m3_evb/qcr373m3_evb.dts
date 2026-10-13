@@ -1,24 +1,22 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 /dts-v1/;
 
-#include <qcom/qcc75x/qcc75x.dtsi>
+#include <qcom/qcr3xx/qcr3733.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
-#include "qcc75xm_evk-pinctrl.dtsi"
+#include "qcr373m3_evb-pinctrl.dtsi"
 
 / {
-	model = "QCC75xM Evaluation Kit";
-	compatible = "qcom,qcc75x";
+	model = "QCR373M-3 Evaluation Board";
+	compatible = "qcom,qcr373";
 
 	chosen {
 		zephyr,flash = &flash0;
 		zephyr,sram = &sram0;
 		zephyr,ipc_shm = &xram;
-		zephyr,nocache = &nocache;
-		zephyr,hbnram = &hbnram;
 		zephyr,console = &uart0;
 		zephyr,shell-uart = &uart0;
 		zephyr,entropy = &trng0;
@@ -66,9 +64,9 @@
 };
 
 &flashctrl {
-	flash0: flash@80000000 {
+	flash0: flash@b0000000 {
 		compatible = "soc-nv-flash";
-		reg = <0x80000000 DT_SIZE_K(8192 - 8)>;
+		reg = <0xb0000000 DT_SIZE_K(8192 - 8)>;
 		write-block-size = <32>;
 		erase-block-size = <DT_SIZE_K(4)>;
 		status = "okay";

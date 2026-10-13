@@ -1,7 +1,7 @@
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
-if SOC_SERIES_QCR373
+if SOC_SERIES_QCR3XX
 
 DT_PSRAM_COMPAT := qc7xx-psram
 
@@ -51,7 +51,7 @@ config QCR373_BUILD_POST_PROCESS
 
 config QCR373_MULTI_IMAGE
 	bool "Build a combined AP and NP image"
-	depends on SOC_QCR373_AP
+	depends on SOC_QCR3XX_AP
 	help
 	  Add an NP child-image descriptor to the AP firmware and append the
 	  independently processed NP image before processing AP. The resulting
@@ -108,4 +108,4 @@ choice CACHE_TYPE
 	default EXTERNAL_CACHE
 endchoice
 
-endif # SOC_SERIES_QCR373
+endif # SOC_SERIES_QCR3XX

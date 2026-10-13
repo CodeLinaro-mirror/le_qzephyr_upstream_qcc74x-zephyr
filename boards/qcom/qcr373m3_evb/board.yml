@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 board:
-  name: qcr373_evk
-  full_name: QCC75xM Evaluation Kit
+  name: qcr373m3_evb
+  full_name: QCR373M Evaluation Kit
   vendor: qcom
   socs:
-    - name: qcr373
+    - name: qcr3733
       variants:
         - name: ap
         - name: np

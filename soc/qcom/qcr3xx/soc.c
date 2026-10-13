@@ -273,7 +273,7 @@ const char* hal_driver_version(const char ***ctx)
 	return version_str;
 }
 
-#ifdef CONFIG_BOARD_QCR373_EVK_QCR373_AP
+#ifdef CONFIG_BOARD_QCR373M3_EVB_QCR3XX_NP
 
 #define QC7XX_NP_XIP_BASE               0x30000000U
 #define QC7XX_GLB_BASE                  0x20000000U
@@ -363,7 +363,7 @@ void soc_late_init_hook(void)
 		puts(version_str);
 	}
 
-#ifdef CONFIG_BOARD_QCR373_EVK_QCR373_AP
+#ifdef CONFIG_BOARD_QCR373M3_EVB_QCR3XX_NP
 #ifdef CONFIG_PSRAM
     /* psram init */
     board_psram_x8_init();

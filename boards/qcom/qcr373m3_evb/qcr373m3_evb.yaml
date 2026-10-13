@@ -1,9 +1,9 @@
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
-identifier: qcr373_evk
-name: QCR373
-vendor: qualcomm
+identifier: qcr373m3_evb
+name: QCR373M3-EVB Evaluation board
+vendor: qcom
 type: mcu
 arch: riscv
 toolchain:
