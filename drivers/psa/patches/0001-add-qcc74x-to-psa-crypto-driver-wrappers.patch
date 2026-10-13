@@ -26,7 +26,6 @@ index 9891d2ced..222fefd5d 100644
  
  /* END-driver id */
  
-
 @@ -967,6 +1025,13 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt(
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
@@ -182,3 +181,45 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
          case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
              return( mbedtls_test_transparent_hash_abort(
+@@ -1724,6 +1843,20 @@ static inline psa_status_t psa_driver_wrapper_aead_encrypt(
+             if( status != PSA_ERROR_NOT_SUPPORTED )
+                 return( status );
+ #endif /* PSA_CRYPTO_DRIVER_TEST */
++#if defined(PSA_CRYPTO_DRIVER_QCC74X_AEAD)
++            status = qcc74x_aead_encrypt(
++                         attributes,
++                         key_buffer,
++                         key_buffer_size,
++                         alg,
++                         nonce, nonce_length,
++                         additional_data, additional_data_length,
++                         plaintext, plaintext_length,
++                         ciphertext, ciphertext_size,
++                         ciphertext_length );
++            if( status != PSA_ERROR_NOT_SUPPORTED )
++                return( status );
++#endif /* PSA_CRYPTO_DRIVER_QCC74X_AEAD */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
+ 
+             /* Fell through, meaning no accelerator supports this operation */
+@@ -1751,6 +1884,20 @@ static inline psa_status_t psa_driver_wrapper_aead_decrypt(
+     {
+ 
+     psa_status_t status = PSA_ERROR_CORRUPTION_DETECTED;
++#if defined(PSA_CRYPTO_DRIVER_QCC74X_AEAD)
++    status = qcc74x_aead_decrypt(
++                 attributes,
++                 key_buffer,
++                 key_buffer_size,
++                 alg,
++                 nonce, nonce_length,
++                 additional_data, additional_data_length,
++                 ciphertext, ciphertext_length,
++                 plaintext, plaintext_size,
++                 plaintext_length );
++    if( status != PSA_ERROR_NOT_SUPPORTED )
++        return( status );
++#endif /* PSA_CRYPTO_DRIVER_QCC74X_AEAD */
+     return( mbedtls_psa_aead_decrypt(
+                 attributes, key_buffer, key_buffer_size,
+                 alg,

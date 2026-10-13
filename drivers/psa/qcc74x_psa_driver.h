@@ -19,5 +19,5 @@
 #include "include/qcc74x_psa_init.h"
 #include "include/qcc74x_psa_cipher.h"
 #include "include/qcc74x_psa_entropy.h"
-
+#include "include/qcc74x_psa_aead.h"
 #endif /* QCC74X_PSA_DRIVER_H */

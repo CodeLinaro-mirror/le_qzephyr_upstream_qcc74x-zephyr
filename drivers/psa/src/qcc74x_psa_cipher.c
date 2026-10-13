@@ -257,12 +257,21 @@ psa_status_t qcc74x_transparent_cipher_encrypt(
 
     k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
 
-
+#ifdef CONFIG_QCC74X_AES_HWKEY
+    if (key_buffer == NULL) {
+        qc7xx_aes_select_hwkey(dev, CONFIG_QCC74X_AES_HWKEY_KEY_SEL0,
+                                     CONFIG_QCC74X_AES_HWKEY_KEY_SEL1);
+        qc7xx_aes_set_hwkey_source(dev, CONFIG_QCC74X_AES_HWKEY_KEY_SOURCE);
+        qc7xx_aes_setkey(dev, NULL, key_bits);  /* HW key path */
+    } else
+#endif
+    {
+        qc7xx_aes_setkey(dev, key_buffer, key_bits);  /* SW key path */
+    }
 
     const uint8_t *hw_iv = (iv_length > 0) ? iv : NULL;
 
     ret = qc7xx_aes_encrypt(dev, input, hw_iv, output, (uint32_t)input_length);
-
 
     k_mutex_unlock(&qcc74x_psa_aes_mutex);
 
@@ -306,7 +315,9 @@ static psa_status_t cipher_setup(
         return status;
 
     memset(operation, 0, sizeof(*operation));
-    memcpy(operation->key, key_buffer, key_bits / 8);
+    if (key_buffer != NULL) {
+        memcpy(operation->key, key_buffer, key_bits / 8);
+    }
     operation->key_bits   = (uint16_t)key_bits;
     operation->aes_mode   = aes_mode;
     operation->is_encrypt = is_encrypt;
