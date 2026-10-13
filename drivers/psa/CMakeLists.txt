@@ -66,6 +66,7 @@ qcc74x_apply_patch(0003-secure-storage-convert-local-arrays-to-static.patch)
 zephyr_sources(src/qcc74x_psa_init.c)
 zephyr_sources(src/qcc74x_psa_cipher.c)
 zephyr_sources(src/qcc74x_psa_entropy.c)
+zephyr_sources_ifdef(CONFIG_QCC74X_AEAD_HW_ACCEL src/qcc74x_psa_aead.c)
 
 zephyr_library()
 zephyr_library_sources_ifdef(
@@ -85,3 +86,5 @@ zephyr_compile_definitions_ifdef(CONFIG_PSA_CRYPTO_DRIVER_QCC74X_AES
                                  PSA_CRYPTO_DRIVER_QCC74X_AES)
 zephyr_compile_definitions_ifdef(CONFIG_PSA_CRYPTO_DRIVER_QCC74X_HASH
                                  PSA_CRYPTO_DRIVER_QCC74X_HASH)
+zephyr_compile_definitions_ifdef(CONFIG_QCC74X_AEAD_HW_ACCEL
+                                 PSA_CRYPTO_DRIVER_QCC74X_AEAD)
