@@ -323,8 +323,6 @@ SECTIONS
 
         *_udivdi3*.o*(.text*)
 
-        PROVIDE( __global_pointer$ = . + 0x800 );
-
         /* ram_data has a section alignment of 8 (forced by a uint64_t
          * field inside struct bt_dev in one of its input sections), but it
          * may also need up to CONFIG_DCACHE_LINE_SIZE bytes for other input
@@ -374,6 +372,17 @@ SECTIONS
 
         *(.data)
         *(.data.*)
+
+#ifdef CONFIG_RISCV_GP
+        /* Keep small initialized data and .sbss within gp's signed 12-bit
+         * displacement window.  gp belongs after ordinary .data and before
+         * .sdata; defining it in the preceding ITCM section leaves .sbss
+         * beyond +0x7ff on QCC744 builds.
+         */
+        . = ALIGN(8);
+        PROVIDE(__global_pointer$ = . + 0x800);
+#endif
+
         *(.sdata)
         *(.sdata.*)
         *(.sdata2)
@@ -448,7 +457,7 @@ SECTIONS
 #endif
         *(.noinit_data*)
         *(.noinit)
-#ifdef CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE
+#ifdef CONFIG_QCC74X_NET_PKT_PSRAM
         *(EXCLUDE_FILE(*net_pkt.c.obj) .noinit.*)
 #else
         *(.noinit.*)
@@ -535,8 +544,8 @@ SECTIONS
         KEEP(*(.psram_noinit*))
         KEEP(*(.img_buf*))
 
-#ifdef CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE
-        /* This profile's fixed network pools do not fit in internal RAM. */
+#ifdef CONFIG_QCC74X_NET_PKT_PSRAM
+        /* Place fixed network pools in PSRAM when explicitly requested. */
         *net_pkt.c.obj(.noinit.*)
 #endif
 
