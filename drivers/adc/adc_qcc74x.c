@@ -377,7 +377,7 @@ static int adc_qcc74x_read(const struct device *dev, const struct adc_sequence *
 
 	if (seq->oversampling != 0U) {
 		LOG_ERR("Setting oversampling value is unsupported");
-		return -ENOTSUP;
+		return -EINVAL;
 	}
 
 	if (seq->resolution == 12) {
@@ -388,7 +388,7 @@ static int adc_qcc74x_read(const struct device *dev, const struct adc_sequence *
 		adc_conf->resolution = ADC_RESOLUTION_16B;
 	} else {
 		LOG_ERR("Unsupported resolution: %d", seq->resolution);
-		return -ENOTSUP;
+		return -EINVAL;
 	}
 
 	ret = adc_qcc74x_set_differential_mode(seq->channels, channel_cfgs,
