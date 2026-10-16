@@ -67,6 +67,15 @@ uint8_t qc7xx_lp_beacon_dtim_period_get(void);
 #define QC7XX_WIFI_PS_TIMEOUT_MAX_MS 80U
 #define QC7XX_WIFI_PS_LISTEN_INTERVAL_MAX 20U
 #define QC7XX_WIFI_RECONNECT_DELAY_MS 1000U
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * Settling time between the STA associating and announcing the SoftAP channel
+ * switch. Also debounces a reconnect or roam, as each one reschedules the work.
+ */
+#define QC7XX_WIFI_AP_FOLLOW_STA_DELAY_MS 500U
+/* Beacons to announce before switching, i.e. the delay in TBTTs. */
+#define QC7XX_WIFI_AP_CSA_COUNT 10U
+#endif
 #define QC7XX_TWT_WAKE_DURATION_256_US 256U
 #define QC7XX_TWT_WAKE_DURATION_TU_US 1024U
 
@@ -84,6 +93,9 @@ static bool qc7xx_ap_sta_cache_valid[NX_REMOTE_STA_MAX];
 static struct net_mgmt_event_callback qc7xx_dhcp_cb;
 static struct k_work_delayable qc7xx_wifi_reconnect_work;
 static struct k_work_delayable qc7xx_wifi_restore_ps_work;
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+static struct k_work_delayable qc7xx_wifi_ap_follow_sta_work;
+#endif
 static wifi_mgmr_sta_connect_params_t qc7xx_wifi_reconnect_config;
 static bool qc7xx_wifi_reconnect_config_valid;
 static bool qc7xx_wifi_low_power_reconnecting;
@@ -523,6 +535,37 @@ static uint16_t qc7xx_wifi_channel_to_freq(uint16_t channel, enum wifi_frequency
 		return 0U;
 	}
 }
+
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * The channel the SoftAP is operating on right now.
+ *
+ * wifi_mgmr_get_ap_info() cannot be used for this: its ucChannel is derived
+ * from the requested configuration when the AP starts and is never revisited,
+ * so it still reports the original channel after a channel switch. Ask the
+ * firmware's VIF instead, which fhost_get_vif_status() reports as its current
+ * operating channel.
+ *
+ * Returns 0 if the channel is unknown, e.g. while the AP is down.
+ */
+static uint8_t qc7xx_wifi_ap_operating_channel(void)
+{
+	struct fhost_vif_status status;
+	int channel;
+
+	if (fhost_get_vif_status(MGMR_VIF_AP, &status) != 0) {
+		return 0U;
+	}
+
+	if (status.chan.prim20_freq == 0U) {
+		return 0U;
+	}
+
+	channel = phy_freq_to_channel(status.chan.band, status.chan.prim20_freq);
+
+	return channel > 0 ? (uint8_t)channel : 0U;
+}
+#endif
 
 static bool qc7xx_wifi_state_connected(uint8_t state)
 {
@@ -1132,6 +1175,88 @@ static void qc7xx_wifi_restore_ps_work_handler(struct k_work *work)
 	qc7xx_wifi_low_power_reconnecting = false;
 }
 
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * Align the SoftAP with the STA channel once the STA associates.
+ *
+ * wifi_mgmr_ap_start() already follows the STA channel, but only when the STA is
+ * connected at the time the AP comes up. Starting the AP first leaves the two on
+ * separate channels and the firmware time-shares between them (MCC), with no
+ * corrective path of its own, so announce a channel switch here.
+ *
+ * Runs on the system work queue rather than from the event handler, as
+ * fhost_wpa_execute_cmd() blocks until the supplicant has run the command and
+ * the handler's work queue also carries the remaining Wi-Fi events.
+ */
+static void qc7xx_wifi_ap_follow_sta_work_handler(struct k_work *work)
+{
+	int sta_channel = 0;
+	uint8_t ap_channel;
+	uint16_t freq;
+	int ret;
+
+	ARG_UNUSED(work);
+
+	if (qc7xx_data.state != QC7XX_STA_CONNECTED) {
+		return;
+	}
+
+	if (qc7xx_ap_sta_data.state != QC7XX_AP_STARTED &&
+	    qc7xx_ap_sta_data.state != QC7XX_AP_CONNECTED &&
+	    qc7xx_ap_sta_data.state != QC7XX_AP_DISCONNECTED) {
+		return;
+	}
+
+	if (wifi_mgmr_sta_channel_get(&sta_channel) != 0 || sta_channel <= 0) {
+		LOG_WRN("No STA channel to align the SoftAP with");
+		return;
+	}
+
+	/*
+	 * Must be the operating channel rather than the configured one, so that
+	 * a reconnect onto the channel the AP already follows does not announce
+	 * a second, redundant switch.
+	 */
+	ap_channel = qc7xx_wifi_ap_operating_channel();
+	if (ap_channel == 0U) {
+		LOG_WRN("No SoftAP channel to compare against");
+		return;
+	}
+
+	if ((int)ap_channel == sta_channel) {
+		return;
+	}
+
+	/*
+	 * A CSA moves the AP within its band; it cannot move it across bands,
+	 * and associated stations need not support the target band at all.
+	 */
+	if ((sta_channel > 14) != (ap_channel > 14U)) {
+		LOG_WRN("Not moving the SoftAP from channel %u to STA channel %d: "
+			"different band",
+			ap_channel, sta_channel);
+		return;
+	}
+
+	freq = qc7xx_wifi_channel_to_freq((uint16_t)sta_channel, WIFI_FREQ_BAND_UNKNOWN);
+	if (freq == 0U) {
+		LOG_WRN("No frequency for STA channel %d", sta_channel);
+		return;
+	}
+
+	/* hostapd parses "CHAN_SWITCH <cs_count> <freq>", in MHz. */
+	ret = fhost_wpa_execute_cmd(MGMR_VIF_AP, NULL, NULL, 2000, "CHAN_SWITCH %u %u",
+				    QC7XX_WIFI_AP_CSA_COUNT, (unsigned int)freq);
+	if (ret != 0) {
+		LOG_WRN("Failed to move the SoftAP from channel %u to %d: %d", ap_channel,
+			sta_channel, ret);
+		return;
+	}
+
+	LOG_INF("SoftAP following STA to channel %d (%u MHz)", sta_channel, freq);
+}
+#endif
+
 static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_params *params)
 {
 	struct qc7xx_wifi_runtime *data = dev->data;
@@ -1705,6 +1830,10 @@ int qc7xx_wifi_dev_init(const struct device *dev)
 	ARG_UNUSED(dev);
 	k_work_init_delayable(&qc7xx_wifi_reconnect_work, qc7xx_wifi_reconnect_work_handler);
 	k_work_init_delayable(&qc7xx_wifi_restore_ps_work, qc7xx_wifi_restore_ps_work_handler);
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	k_work_init_delayable(&qc7xx_wifi_ap_follow_sta_work,
+			      qc7xx_wifi_ap_follow_sta_work_handler);
+#endif
 
 	net_al_tx_buf_init();
 
@@ -1921,6 +2050,7 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 	} else if (data == &qc7xx_ap_sta_data) {
 		int phy_mode;
 		wifi_mgmr_ap_info_t ap = { 0 };
+		uint8_t channel;
 
 		status->iface_mode = WIFI_MODE_AP;
 		memcpy(status->bssid, data->mac_addr, WIFI_MAC_ADDR_LEN);
@@ -1935,13 +2065,17 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 
 		if (wifi_mgmr_get_ap_info(&ap) == 0) {
 			status->security = qc7xx_wifi_security_to_zephyr(ap.ucSecurity);
-			/* Report the channel the AP actually operates on: it may
-			 * differ from the configured one, as the AP follows the
-			 * STA channel when the STA is connected.
-			 */
 			if (ap.ucChannel != 0U) {
 				status->channel = ap.ucChannel;
 			}
+		}
+
+		/* Prefer the operating channel, which differs from the one above
+		 * once the AP has followed the STA through a channel switch.
+		 */
+		channel = qc7xx_wifi_ap_operating_channel();
+		if (channel != 0U) {
+			status->channel = channel;
 		}
 
 		status->band = status->channel > 14U ? WIFI_FREQ_BAND_5_GHZ :
@@ -2412,6 +2546,12 @@ static void qc7xx_wifi_handle_sta_connect_event(void *event_data)
 	 * connected STA interface the default so socket traffic is routed to
 	 * the uplink interface rather than the inactive AP interface. */
 	net_if_set_default(qc7xx_wifi_iface);
+
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	/* An AP started before the STA associated is left on its own channel. */
+	(void)k_work_reschedule(&qc7xx_wifi_ap_follow_sta_work,
+				K_MSEC(QC7XX_WIFI_AP_FOLLOW_STA_DELAY_MS));
+#endif
 
 #if defined(CONFIG_QC7XX_WIFI_STA_AUTO_DHCPV4)
 	if (qc7xx_wifi_low_power_reconnecting) {
