@@ -177,7 +177,6 @@ config QCC74X_PM_PDS1
 	bool "Enable QCC74X PDS1 PSRAM retention"
 	depends on PSRAM
 	depends on PSRAM_LENGTH = 0x400000 || PSRAM_LENGTH = 0x800000 || PSRAM_LENGTH = 0x1000000
-	depends on !BT
 	select QCC74X_PM_LPFW
 	help
 	  Use suspend-to-ram substate 1 with 4, 8 or 16 MiB Winbond x8 PSRAM data and
