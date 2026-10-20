@@ -52,7 +52,9 @@ extern int hardware_recovery_lp(void);
 extern int qc7xx_wifi_rf_resume_restore(void);
 #endif
 
+#if defined(CONFIG_QCC74X_PM_PDS1)
 static uint8_t saved_cliccfg;
+#endif
 
 static void qcc74x_restore_uart_route_from_lp(void)
 {
@@ -502,7 +504,9 @@ int32_t ATTR_TCM_SECTION lpfw_beacon_delay_sliding_win_get_average(void)
 void lp_hook_pre_user(void *arg)
 {
 	ARG_UNUSED(arg);
+#if defined(CONFIG_QCC74X_PM_PDS1)
 	saved_cliccfg = CLIC->CLICCFG;
+#endif
 }
 void lp_hook_pre_sleep(iot2lp_para_t *arg)
 {
@@ -516,8 +520,13 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 
 	ARG_UNUSED(arg);
 
-	/* Undo HAL's level/priority split before restoring Zephyr devices. */
+	/* PDS reset restores the ROM default WRAM/EM split. */
+	(void)qc7xx_sys_em_config();
+
+	/* PDS1 restores the CLIC mode captured before LPFW changed it. */
+#if defined(CONFIG_QCC74X_PM_PDS1)
 	CLIC->CLICCFG = saved_cliccfg;
+#endif
 
 	qcc74x_restore_app_clocks_from_lp();
 
