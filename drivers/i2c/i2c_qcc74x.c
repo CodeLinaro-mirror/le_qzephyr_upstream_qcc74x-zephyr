@@ -379,8 +379,8 @@ static int32_t i2c_qcc74x_get_clock_rate(const struct device *const dev, uint32_
  * @param[out] phase_3 Pointer to store the calculated phase 3 value.
  */
 static void i2c_qcc74x_calculate_phases(const uint32_t frequency, const uint32_t clk_rate,
-				      uint32_t *const phase_0, uint32_t *const phase_1,
-				      uint32_t *const phase_2, uint32_t *const phase_3)
+				      int *const phase_0, int *const phase_1,
+				      int *const phase_2, int *const phase_3)
 {
 	const uint32_t total_phase = (clk_rate + frequency / 2U) / frequency;
 
@@ -395,11 +395,6 @@ static void i2c_qcc74x_calculate_phases(const uint32_t frequency, const uint32_t
 		*phase_2 = (total_phase + 1U) / I2C_DUTY_CYCLE_33_PERCENT - *phase_1;
 		*phase_3 = total_phase - *phase_0 - *phase_1 - *phase_2;
 	}
-
-	*phase_0 = i2c_qcc74x_clamp_phase(*phase_0);
-	*phase_1 = i2c_qcc74x_clamp_phase(*phase_1);
-	*phase_2 = i2c_qcc74x_clamp_phase(*phase_2);
-	*phase_3 = i2c_qcc74x_clamp_phase(*phase_3);
 }
 
 /**
@@ -436,7 +431,7 @@ static void i2c_qcc74x_configure_timing(const struct device *const dev, const ui
 {
 	const struct i2c_qcc74x_config *const config = dev->config;
 	const uint32_t base_reg = config->base;
-	uint32_t phase_0 = 0U, phase_1 = 0U, phase_2 = 0U, phase_3 = 0U;
+	int phase_0 = 0, phase_1 = 0, phase_2 = 0, phase_3 = 0;
 	uint32_t bias = 0U;
 	uint32_t clk_rate = 0U;
 	uint32_t reg_val = 0U;
@@ -449,32 +444,49 @@ static void i2c_qcc74x_configure_timing(const struct device *const dev, const ui
 	i2c_qcc74x_calculate_phases(frequency, clk_rate, &phase_0, &phase_1, &phase_2, &phase_3);
 	bias = i2c_qcc74x_calculate_bias(base_reg);
 
+	/* Unified phase adjustment (QC7XX method) */
+	/* Check minimum values */
+	phase_0 = (phase_0 <= 0) ? 1 : phase_0;
+	phase_1 = (phase_1 <= (int)bias) ? (bias + 1) : phase_1;
+	phase_2 = (phase_2 <= 0) ? 1 : phase_2;
+	phase_3 = (phase_3 <= 0) ? 1 : phase_3;
+
+	/* Check maximum values */
+	phase_0 = (phase_0 >= 256) ? 256 : phase_0;
+	phase_1 = (phase_1 >= 256) ? 256 : phase_1;
+	phase_2 = (phase_2 >= 256) ? 256 : phase_2;
+	phase_3 = (phase_3 >= 256) ? 256 : phase_3;
+
+	LOG_INF("I2C timing: freq=%u Hz, clk_rate=%u Hz, "
+		"phase0=%d, phase1=%d (bias=%u), phase2=%d, phase3=%d",
+		frequency, clk_rate, phase_0, phase_1, bias, phase_2, phase_3);
+
 	/* Configure data phase timing */
-	reg_val = (phase_0 - 1U) << I2C_CR_I2C_PRD_D_PH_0_SHIFT;
-	reg_val |= (((phase_1 - bias - 1U) <= 0U) ? 1U : (phase_1 - bias - 1U))
+	reg_val = ((phase_0 - 1U) & 0xffU) << I2C_CR_I2C_PRD_D_PH_0_SHIFT;
+	reg_val |= ((((phase_1 - bias - 1U) <= 0U) ? 1U : (phase_1 - bias - 1U)) & 0xffU)
 		   << I2C_CR_I2C_PRD_D_PH_1_SHIFT;
-	reg_val |= (phase_2 - 1U) << I2C_CR_I2C_PRD_D_PH_2_SHIFT;
-	reg_val |= (phase_3 - 1U) << I2C_CR_I2C_PRD_D_PH_3_SHIFT;
+	reg_val |= ((phase_2 - 1U) & 0xffU) << I2C_CR_I2C_PRD_D_PH_2_SHIFT;
+	reg_val |= ((phase_3 - 1U) & 0xffU) << I2C_CR_I2C_PRD_D_PH_3_SHIFT;
 	sys_write32(reg_val, base_reg + I2C_PRD_DATA_OFFSET);
 
 	/* Configure start phase timing */
-	reg_val = (phase_0 - 1U) << I2C_CR_I2C_PRD_S_PH_0_SHIFT;
-	reg_val |= (((phase_0 + phase_3 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
-								: (phase_0 + phase_3 - 1U))
+	reg_val = ((phase_0 - 1U) & 0xffU) << I2C_CR_I2C_PRD_S_PH_0_SHIFT;
+	reg_val |= ((((phase_0 + phase_3 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
+								: (phase_0 + phase_3 - 1U)) & 0xffU)
 		   << I2C_CR_I2C_PRD_S_PH_1_SHIFT;
-	reg_val |= (((phase_1 + phase_2 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
-								: (phase_1 + phase_2 - 1U))
+	reg_val |= ((((phase_1 + phase_2 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
+								: (phase_1 + phase_2 - 1U)) & 0xffU)
 		   << I2C_CR_I2C_PRD_S_PH_2_SHIFT;
-	reg_val |= (phase_3 - 1U) << I2C_CR_I2C_PRD_S_PH_3_SHIFT;
+	reg_val |= ((phase_3 - 1U) & 0xffU) << I2C_CR_I2C_PRD_S_PH_3_SHIFT;
 	sys_write32(reg_val, base_reg + I2C_PRD_START_OFFSET);
 
 	/* Configure stop phase timing */
-	reg_val = (phase_0 - 1U) << I2C_CR_I2C_PRD_P_PH_0_SHIFT;
-	reg_val |= (((phase_1 + phase_2 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
-								: (phase_1 + phase_2 - 1U))
+	reg_val = ((phase_0 - 1U) & 0xffU) << I2C_CR_I2C_PRD_P_PH_0_SHIFT;
+	reg_val |= ((((phase_1 + phase_2 - 1U) >= I2C_PHASE_MAX) ? (I2C_PHASE_MAX - 1U)
+								: (phase_1 + phase_2 - 1U)) & 0xffU)
 		   << I2C_CR_I2C_PRD_P_PH_1_SHIFT;
-	reg_val |= (phase_0 - 1U) << I2C_CR_I2C_PRD_P_PH_2_SHIFT;
-	reg_val |= (phase_3 - 1U) << I2C_CR_I2C_PRD_P_PH_3_SHIFT;
+	reg_val |= ((phase_0 - 1U) & 0xffU) << I2C_CR_I2C_PRD_P_PH_2_SHIFT;
+	reg_val |= ((phase_3 - 1U) & 0xffU) << I2C_CR_I2C_PRD_P_PH_3_SHIFT;
 	sys_write32(reg_val, base_reg + I2C_PRD_STOP_OFFSET);
 }
 
