@@ -521,6 +521,7 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 	ARG_UNUSED(arg);
 
 	/* PDS reset restores the ROM default WRAM/EM split. */
+	extern int qc7xx_sys_em_config(void);
 	(void)qc7xx_sys_em_config();
 
 	/* PDS1 restores the CLIC mode captured before LPFW changed it. */
