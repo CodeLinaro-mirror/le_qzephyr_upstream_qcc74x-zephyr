@@ -58,26 +58,30 @@ struct pwm_qcc74x_data {
  */
 static bool pwm_qcc74x_check_pwm_status(const uint32_t base_reg, const bool expect_stopped)
 {
-	const int64_t start_time = k_uptime_get();
 	uint32_t reg_val = 0U;
 	bool is_expected = false;
 
-	while (true) {
+	/*
+	 * This is used by system-managed Device PM while the idle thread enters
+	 * and resumes PDS. Do not use k_msleep() here: that would enqueue the
+	 * idle thread in Zephyr's timeout queue. Do not use uptime for the
+	 * timeout either: the system clock can be paused during PDS resume.
+	 */
+	for (uint32_t elapsed_ms = 0U;
+	     elapsed_ms <= QC7XX_PWM_TIMEOUT_MS;
+	     elapsed_ms += QC7XX_PWM_STATUS_DELAY_CHECK_MS) {
 		reg_val = sys_read32(base_reg + PWM_MC0_CONFIG0_OFFSET);
 		reg_val &= PWM_STS_STOP;
 		is_expected = expect_stopped ? (reg_val != 0) : (reg_val == 0);
 		if (is_expected) {
-			break;
+			return true;
 		}
 
-		if (k_uptime_get() - start_time > QC7XX_PWM_TIMEOUT_MS) {
-			LOG_ERR("PWM failed to check PWM state within timeout.");
-			return false;
-		}
-		k_msleep(QC7XX_PWM_STATUS_DELAY_CHECK_MS); // prevent busy-waiting
+		k_busy_wait(QC7XX_PWM_STATUS_DELAY_CHECK_MS * USEC_PER_MSEC);
 	}
 
-	return true;
+	LOG_ERR("PWM failed to check PWM state within timeout.");
+	return false;
 }
 
 /**
