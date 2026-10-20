@@ -1063,8 +1063,11 @@ static int i2s_qcc74x_trigger(const struct device *dev, enum i2s_dir dir, enum i
 			return -EIO;
 		}
 
-		/* Stop DMA and free current mem_block */
-		if (stream->state == I2S_STATE_RUNNING) {
+		/* Stop DMA and free the in-flight mem_block. STOPPING/ERROR also own one:
+		 * the DMA completion that would release it may never arrive.
+		 */
+		if (stream->state == I2S_STATE_RUNNING || stream->state == I2S_STATE_STOPPING ||
+		    stream->state == I2S_STATE_ERROR) {
 			dma_stop(stream->dma_dev, stream->dma_channel);
 			if (stream->current_item.mem_block != NULL) {
 				k_mem_slab_free(stream->i2s_cfg.mem_slab,
