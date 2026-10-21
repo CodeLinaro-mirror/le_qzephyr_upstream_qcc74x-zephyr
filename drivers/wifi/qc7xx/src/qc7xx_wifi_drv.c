@@ -99,6 +99,7 @@ static struct k_work_delayable qc7xx_wifi_ap_follow_sta_work;
 static wifi_mgmr_sta_connect_params_t qc7xx_wifi_reconnect_config;
 static bool qc7xx_wifi_reconnect_config_valid;
 static bool qc7xx_wifi_low_power_reconnecting;
+static bool qc7xx_wifi_autoconnect_pending;
 static wifi_conf_t qc7xx_wifi_conf = {
 	.country_code = "CN",
 };
@@ -1106,6 +1107,7 @@ static int qc7xx_wifi_disconnect(const struct device *dev)
 	if (data == &qc7xx_data) {
 		qc7xx_wifi_low_power_reconnecting = false;
 		qc7xx_wifi_reconnect_config_valid = false;
+		qc7xx_wifi_autoconnect_pending = false;
 		(void)k_work_cancel_delayable(&qc7xx_wifi_reconnect_work);
 		(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
 		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) &&
@@ -1277,10 +1279,23 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	}
 
 	if (data->state == QC7XX_STA_CONNECTING || data->state == QC7XX_STA_CONNECTED) {
-		return -EALREADY;
+		if (data->state != QC7XX_STA_CONNECTING || !qc7xx_wifi_autoconnect_pending) {
+			return -EALREADY;
+		}
+
+		/*
+		 * Only the auto-reconnect loop holds CONNECTING. Its network
+		 * block keeps the previous credentials and cannot be rewritten
+		 * in place, so tear the loop down and reconfigure from scratch.
+		 */
+		ret = qc7xx_wifi_disconnect(dev);
+		if (ret != 0) {
+			return ret;
+		}
 	}
 
 	qc7xx_wifi_low_power_reconnecting = false;
+	qc7xx_wifi_autoconnect_pending = false;
 	(void)k_work_cancel_delayable(&qc7xx_wifi_reconnect_work);
 	(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
 
@@ -2633,9 +2648,15 @@ static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U &&
 		   qc7xx_data.conn_requested) {
 		qc7xx_data.state = QC7XX_STA_CONNECTING;
+		/* Mark CONNECTING as owned by the auto-reconnect loop, so a
+		 * later connect request can take it over instead of being
+		 * rejected with -EALREADY.
+		 */
+		qc7xx_wifi_autoconnect_pending = true;
 		wifi_mgmr_sta_autoconnect_enable();
 	} else {
 		qc7xx_wifi_low_power_reconnecting = false;
+		qc7xx_wifi_autoconnect_pending = false;
 		/* Nothing requested: staying at CONNECTING would reject every
 		 * later connect request with -EALREADY.
 		 */
