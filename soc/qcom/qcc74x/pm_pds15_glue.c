@@ -55,6 +55,7 @@ extern int qc7xx_wifi_rf_resume_restore(void);
 #if defined(CONFIG_QCC74X_PM_PDS1)
 static uint8_t saved_cliccfg;
 #endif
+static uint32_t saved_em_sel;
 
 static void qcc74x_restore_uart_route_from_lp(void)
 {
@@ -507,6 +508,8 @@ void lp_hook_pre_user(void *arg)
 #if defined(CONFIG_QCC74X_PM_PDS1)
 	saved_cliccfg = CLIC->CLICCFG;
 #endif
+	saved_em_sel = QC7XX_GET_REG_BITS_VAL(QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3),
+					    GLB_EM_SEL);
 }
 void lp_hook_pre_sleep(iot2lp_para_t *arg)
 {
@@ -517,12 +520,17 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 {
 	int board_recovery_rc = 0;
 	int wifi_rf_rc = 0;
+	uint32_t sram_cfg;
 
 	ARG_UNUSED(arg);
 
-	/* PDS reset restores the ROM default WRAM/EM split. */
-	extern int qc7xx_sys_em_config(void);
-	(void)qc7xx_sys_em_config();
+	/* PDS reset restores the ROM default WRAM/EM split. Restore the exact
+	 * pre-sleep selector before any heap, cacheable-alias, or device access. */
+	sram_cfg = QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3);
+	sram_cfg = QC7XX_SET_REG_BITS_VAL(sram_cfg, GLB_EM_SEL, saved_em_sel);
+	QC7XX_WR_REG(GLB_BASE, GLB_SRAM_CFG3, sram_cfg);
+	(void)QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3);
+	__DSB();
 
 	/* PDS1 restores the CLIC mode captured before LPFW changed it. */
 #if defined(CONFIG_QCC74X_PM_PDS1)
