@@ -188,14 +188,6 @@ config QCC74X_PM_PDS1
 
 endchoice
 
-config QCC74X_PDS1_DEBUG_TRACE
-	bool "PDS1 diagnostic breadcrumbs and preserved JTAG pins"
-	depends on QCC74X_PM_PDS1
-	help
-	  Preserve GPIO0..3 during APP low-power GPIO preparation and record
-	  uncached stage markers for debugger inspection. Not for power
-	  measurements or applications using these pins for GPIO wake.
-
 config QCC74X_PM_LPFW_CAPABLE
 	bool
 	default y
