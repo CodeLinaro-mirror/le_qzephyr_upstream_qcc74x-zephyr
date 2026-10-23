@@ -35,6 +35,25 @@ if(CONFIG_BUILD_OUTPUT_BIN AND CONFIG_QCR373_BUILD_POST_PROCESS)
   endif()
 
   set(QCONN_SECURE ${QC7XX_SDK_PATH}/tools/qc7xx_tools/QConn_Secure/QConn_Secure${TOOL_SUFFIX})
+  # tools/qc7xx_tools/ is populated by the HAL module, and modules are processed
+  # after soc/, so on a virgin tree the tool is missing here and the partition.bin
+  # post-build step below would be silently skipped. Copy it ourselves instead of
+  # only probing, to the same path the HAL uses (its later copy becomes a no-op).
+  # Copying is required because the drops ship the tool non-executable (0640).
+  if(NOT EXISTS ${QCONN_SECURE})
+    foreach(_qconn_src ${QC7XX_SDK_PATH}/zephyr/blobs/qcr373/tool
+                       ${QC7XX_SDK_PATH}/../../../../prop/qcc74x-bin/qcr373/tool)
+      if(EXISTS ${_qconn_src}/QConn_Secure${TOOL_SUFFIX})
+        file(COPY ${_qconn_src}/QConn_Secure${TOOL_SUFFIX}
+             DESTINATION ${QC7XX_SDK_PATH}/tools/qc7xx_tools/QConn_Secure
+             FILE_PERMISSIONS
+               OWNER_READ OWNER_WRITE OWNER_EXECUTE
+               GROUP_READ GROUP_EXECUTE
+               WORLD_READ WORLD_EXECUTE)
+        break()
+      endif()
+    endforeach()
+  endif()
 
   if(CONFIG_PSRAM)
     set(QCONN_SECURE_CONFIG
