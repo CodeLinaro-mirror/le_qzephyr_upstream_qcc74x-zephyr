@@ -3,9 +3,10 @@
 
 config QCC74X_VIK_MEMCPY
 	bool "Use the bounded Vik memcpy implementation"
-	depends on SOC_SERIES_QCC74X && PSRAM_COPY_CODE && RISCV_ISA_RV32I
-	default y if QCC74X_WIFI_HIGH_PERFORMANCE
+	depends on RISCV_ISA_RV32I && LITTLE_ENDIAN
+	default y
 	help
-	  Replace the size-optimized libc memcpy with a QCC74x RV32 variant of
-	  Daniel Vik's word-copy implementation. This is intended for the Wi-Fi 
-	  throughput profile. See lib/lib_vikmemcpy.c.
+	  Replace the size-optimized libc memcpy with a RV32 variant of Daniel
+	  Vik's word-copy implementation. Misaligned sources use aligned loads
+	  plus shifts without reading outside the requested source range.
+	  See lib/lib_vikmemcpy.c.
