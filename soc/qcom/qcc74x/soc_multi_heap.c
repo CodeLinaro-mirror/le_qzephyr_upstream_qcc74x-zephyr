@@ -229,15 +229,17 @@ static int soc_multi_heap_init(void) {
   psram_heap_registered = false;
 #endif
 
+#ifdef CONFIG_PSRAM
+  /* The PSRAM controller initializes at PRE_KERNEL_1 priority 0. */
+  soc_multi_heap_psram_add();
+#endif
+
   if (ram_end > ram_start) {
     ram_heap_registered = register_heap("ocram", &ram_heap, ram_start,
 						    ram_end - ram_start);
   }
 
-#ifdef CONFIG_PSRAM
-  /* Register once after early PSRAM controller setup; retain ledger initialization. */
-  soc_multi_heap_psram_add();
-#else
+#ifndef CONFIG_PSRAM
   register_heap("wram", &wram_heap, wram_start, wram_size);
 #endif
 

@@ -418,6 +418,19 @@ SECTIONS
 
     __data_region_end = .;
 
+#ifdef CONFIG_PSRAM
+    QCC_GROUP_START(ram_psram)
+    QCC_SECTION_BSS_PROLOGUE(psram_static_scratch, (NOLOAD),)
+    {
+        . = ALIGN(4);
+        KEEP(*zperf_udp_uploader.c.obj(.bss.sample_packet))
+        KEEP(*zperf_tcp_uploader.c.obj(.bss.sample_packet))
+        KEEP(*flash_shell.c.obj(.bss.test_arr))
+        KEEP(*flash_shell.c.obj(.bss.check_arr*))
+        . = ALIGN(4);
+    } > ram_psram
+#endif
+
     QCC_SECTION_BSS_PROLOGUE(ram_bss, (NOLOAD),)
     {
         . = ALIGN(4);
@@ -511,8 +524,6 @@ SECTIONS
 #endif
 
 #ifdef CONFIG_PSRAM
-    QCC_GROUP_START(ram_psram)
-
     QCC_SECTION_DATA_PROLOGUE(psram_data, ,)
     {
         . = ALIGN(32);
