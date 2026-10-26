@@ -75,6 +75,12 @@ zephyr_sources_ifdef(CONFIG_QCC74X_PM_LPFW
   ${QC7XX_SDK_PATH}/drivers/soc/qcc74x/std/startup/interrupt.c
 )
 
+# BLE PDS15 support must remain available in Bluetooth-only images. The
+# wireless socport target is created only when CONFIG_WIFI is enabled.
+zephyr_sources_ifdef(CONFIG_QCC74X_PM_PDS15_BLE
+  ${QC7XX_SDK_PATH}/zephyr/qcc74x/wireless/socport_zephyr/src/qcc74x_ble_lowpower.c
+)
+
 set(LPFW_BIN
   ${QC7XX_SDK_PATH}/zephyr/blobs/qcc74x/bin/qcc74x_lp_fw.bin)
 set(LPFW_PATCH
