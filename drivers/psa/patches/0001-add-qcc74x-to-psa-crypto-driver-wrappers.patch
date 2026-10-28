@@ -1,24 +1,23 @@
 diff --git a/core/psa_crypto_driver_wrappers.h b/core/psa_crypto_driver_wrappers.h
-index 9891d2ced..222fefd5d 100644
+index 9891d2ced..4eb216ab0 100644
 --- a/core/psa_crypto_driver_wrappers.h
 +++ b/core/psa_crypto_driver_wrappers.h
-@@ -45,6 +45,9 @@
+@@ -45,6 +45,14 @@
  #if defined(MBEDTLS_PSA_P256M_DRIVER_ENABLED)
  #include "../drivers/p256-m/p256-m_driver_entrypoints.h"
  
 +#endif
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
 +#include "qcc74x_psa_driver.h"
++#endif
 +
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X_HASH)
 +/* Headers for qcc74x direct LHAL transparent driver */
 +#include "qcc74x_psa_hash.h"
-+#endif
-+
  #endif
  
  /* END-driver headers */
-@@ -57,6 +60,7 @@
+@@ -57,6 +65,7 @@
  #define MBEDTLS_TEST_OPAQUE_DRIVER_ID (2)
  #define MBEDTLS_TEST_TRANSPARENT_DRIVER_ID (3)
  #define P256_TRANSPARENT_DRIVER_ID (4)
@@ -26,7 +25,7 @@ index 9891d2ced..222fefd5d 100644
  
  /* END-driver id */
  
-@@ -967,6 +1025,13 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt(
+@@ -967,6 +976,13 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt(
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
@@ -40,12 +39,48 @@ index 9891d2ced..222fefd5d 100644
  
  #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
              return( mbedtls_psa_cipher_encrypt( attributes,
-@@ -1272,8 +1337,17 @@ static inline psa_status_t psa_driver_wrapper_cipher_set_iv(
-             return( mbedtls_test_opaque_cipher_set_iv(
-                         &operation->ctx.opaque_test_driver_ctx,
+@@ -1132,6 +1148,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt_setup(
+                 return( status );
+ #endif /* PSA_CRYPTO_DRIVER_TEST */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
++#if defined(PSA_CRYPTO_DRIVER_QCC74X)
++            status = qcc74x_transparent_cipher_encrypt_setup(
++                &operation->ctx.qcc74x_transparent_driver_ctx,
++                attributes,
++                key_buffer,
++                key_buffer_size,
++                alg );
++            if( status == PSA_SUCCESS )
++                operation->id = QCC74X_TRANSPARENT_DRIVER_ID;
++
++            if( status != PSA_ERROR_NOT_SUPPORTED )
++                return( status );
++#endif /* PSA_CRYPTO_DRIVER_QCC74X */
+ #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
+             /* Fell through, meaning no accelerator supports this operation */
+             status = mbedtls_psa_cipher_encrypt_setup( &operation->ctx.mbedtls_ctx,
+@@ -1205,6 +1234,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_decrypt_setup(
+                 return( status );
+ #endif /* PSA_CRYPTO_DRIVER_TEST */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
++#if defined(PSA_CRYPTO_DRIVER_QCC74X)
++            status = qcc74x_transparent_cipher_decrypt_setup(
++                &operation->ctx.qcc74x_transparent_driver_ctx,
++                attributes,
++                key_buffer,
++                key_buffer_size,
++                alg );
++            if( status == PSA_SUCCESS )
++                operation->id = QCC74X_TRANSPARENT_DRIVER_ID;
++
++            if( status != PSA_ERROR_NOT_SUPPORTED )
++                return( status );
++#endif /* PSA_CRYPTO_DRIVER_QCC74X */
+ #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
+             /* Fell through, meaning no accelerator supports this operation */
+             status = mbedtls_psa_cipher_decrypt_setup( &operation->ctx.mbedtls_ctx,
+@@ -1274,6 +1316,12 @@ static inline psa_status_t psa_driver_wrapper_cipher_set_iv(
                          iv, iv_length ) );
-+
-+
  #endif /* PSA_CRYPTO_DRIVER_TEST */
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
@@ -54,16 +89,11 @@ index 9891d2ced..222fefd5d 100644
 +                        &operation->ctx.qcc74x_transparent_driver_ctx,
 +                        iv, iv_length ) );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
-+
      }
  
      (void)iv;
-@@ -1315,8 +1389,18 @@ static inline psa_status_t psa_driver_wrapper_cipher_update(
-                         &operation->ctx.opaque_test_driver_ctx,
-                         input, input_length,
+@@ -1317,6 +1365,13 @@ static inline psa_status_t psa_driver_wrapper_cipher_update(
                          output, output_size, output_length ) );
-+
-+
  #endif /* PSA_CRYPTO_DRIVER_TEST */
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
@@ -73,16 +103,11 @@ index 9891d2ced..222fefd5d 100644
 +                        input, input_length,
 +                        output, output_size, output_length ) );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
-+
      }
  
      (void)input;
-@@ -1355,8 +1439,17 @@ static inline psa_status_t psa_driver_wrapper_cipher_finish(
-             return( mbedtls_test_opaque_cipher_finish(
-                         &operation->ctx.opaque_test_driver_ctx,
+@@ -1357,6 +1412,12 @@ static inline psa_status_t psa_driver_wrapper_cipher_finish(
                          output, output_size, output_length ) );
-+
-+
  #endif /* PSA_CRYPTO_DRIVER_TEST */
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
@@ -91,16 +116,11 @@ index 9891d2ced..222fefd5d 100644
 +                        &operation->ctx.qcc74x_transparent_driver_ctx,
 +                        output, output_size, output_length ) );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
-+
      }
  
      (void)output;
-@@ -1395,8 +1488,16 @@ static inline psa_status_t psa_driver_wrapper_cipher_abort(
-                 &operation->ctx.opaque_test_driver_ctx,
-                 sizeof( operation->ctx.opaque_test_driver_ctx ) );
+@@ -1397,6 +1458,11 @@ static inline psa_status_t psa_driver_wrapper_cipher_abort(
              return( status );
-+
-+
  #endif /* PSA_CRYPTO_DRIVER_TEST */
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
@@ -108,11 +128,10 @@ index 9891d2ced..222fefd5d 100644
 +            return( qcc74x_transparent_cipher_abort(
 +                        &operation->ctx.qcc74x_transparent_driver_ctx ) );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
-+
      }
  
      (void)status;
-@@ -1449,6 +1534,15 @@ static inline psa_status_t psa_driver_wrapper_hash_setup(
+@@ -1449,6 +1515,15 @@ static inline psa_status_t psa_driver_wrapper_hash_setup(
      psa_status_t status = PSA_ERROR_CORRUPTION_DETECTED;
  
      /* Try setup on accelerators first */
@@ -128,11 +147,10 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
      status = mbedtls_test_transparent_hash_setup(
                  &operation->ctx.test_driver_ctx, alg );
-@@ -1487,6 +1581,14 @@ static inline psa_status_t psa_driver_wrapper_hash_clone(
+@@ -1487,6 +1562,13 @@ static inline psa_status_t psa_driver_wrapper_hash_clone(
              return( mbedtls_psa_hash_clone( &source_operation->ctx.mbedtls_ctx,
                                              &target_operation->ctx.mbedtls_ctx ) );
  #endif
-+
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X_HASH)
 +        case QCC74X_TRANSPARENT_DRIVER_ID:
 +            target_operation->id = QCC74X_TRANSPARENT_DRIVER_ID;
@@ -143,7 +161,7 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
          case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
              target_operation->id = MBEDTLS_TEST_TRANSPARENT_DRIVER_ID;
-@@ -1512,6 +1614,12 @@ static inline psa_status_t psa_driver_wrapper_hash_update(
+@@ -1512,6 +1594,12 @@ static inline psa_status_t psa_driver_wrapper_hash_update(
              return( mbedtls_psa_hash_update( &operation->ctx.mbedtls_ctx,
                                               input, input_length ) );
  #endif
@@ -156,7 +174,7 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
          case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
              return( mbedtls_test_transparent_hash_update(
-@@ -1538,6 +1646,12 @@ static inline psa_status_t psa_driver_wrapper_hash_finish(
+@@ -1538,6 +1626,12 @@ static inline psa_status_t psa_driver_wrapper_hash_finish(
              return( mbedtls_psa_hash_finish( &operation->ctx.mbedtls_ctx,
                                               hash, hash_size, hash_length ) );
  #endif
@@ -169,7 +187,7 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
          case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
              return( mbedtls_test_transparent_hash_finish(
-@@ -1561,6 +1675,11 @@ static inline psa_status_t psa_driver_wrapper_hash_abort(
+@@ -1561,6 +1655,11 @@ static inline psa_status_t psa_driver_wrapper_hash_abort(
          case PSA_CRYPTO_MBED_TLS_DRIVER_ID:
              return( mbedtls_psa_hash_abort( &operation->ctx.mbedtls_ctx ) );
  #endif
@@ -181,7 +199,7 @@ index 9891d2ced..222fefd5d 100644
  #if defined(PSA_CRYPTO_DRIVER_TEST)
          case MBEDTLS_TEST_TRANSPARENT_DRIVER_ID:
              return( mbedtls_test_transparent_hash_abort(
-@@ -1724,6 +1843,20 @@ static inline psa_status_t psa_driver_wrapper_aead_encrypt(
+@@ -1736,6 +1835,20 @@ static inline psa_status_t psa_driver_wrapper_aead_encrypt(
              if( status != PSA_ERROR_NOT_SUPPORTED )
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
@@ -202,24 +220,24 @@ index 9891d2ced..222fefd5d 100644
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
  
              /* Fell through, meaning no accelerator supports this operation */
-@@ -1751,6 +1884,20 @@ static inline psa_status_t psa_driver_wrapper_aead_decrypt(
-     {
- 
-     psa_status_t status = PSA_ERROR_CORRUPTION_DETECTED;
+@@ -1799,6 +1912,20 @@ static inline psa_status_t psa_driver_wrapper_aead_decrypt(
+                 return( status );
+ #endif /* PSA_CRYPTO_DRIVER_TEST */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X_AEAD)
-+    status = qcc74x_aead_decrypt(
-+                 attributes,
-+                 key_buffer,
-+                 key_buffer_size,
-+                 alg,
-+                 nonce, nonce_length,
-+                 additional_data, additional_data_length,
-+                 ciphertext, ciphertext_length,
-+                 plaintext, plaintext_size,
-+                 plaintext_length );
-+    if( status != PSA_ERROR_NOT_SUPPORTED )
-+        return( status );
++            status = qcc74x_aead_decrypt(
++                        attributes,
++                        key_buffer,
++                        key_buffer_size,
++                        alg,
++                        nonce, nonce_length,
++                        additional_data, additional_data_length,
++                        ciphertext, ciphertext_length,
++                        plaintext, plaintext_size,
++                        plaintext_length );
++            if( status != PSA_ERROR_NOT_SUPPORTED )
++                return( status );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X_AEAD */
-     return( mbedtls_psa_aead_decrypt(
-                 attributes, key_buffer, key_buffer_size,
-                 alg,
+ 
+             /* Fell through, meaning no accelerator supports this operation */
+ #if defined(MBEDTLS_PSA_BUILTIN_AEAD)

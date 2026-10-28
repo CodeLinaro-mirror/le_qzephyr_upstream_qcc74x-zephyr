@@ -15,8 +15,10 @@
 #
 #    Patch 0001: Add QCC74X dispatch table entries to psa_crypto_driver_wrappers.h
 #    Patch 0002: Add QCC74X context member to psa_driver_cipher_context_t union
-#    Patch 0003: Convert local arrays to static globals in tf-psa-crypto/core/psa_crypto.c
-#               to prevent stack overflow when ITS uses AES-GCM transform.
+#    Patch 0003: Convert local arrays to static globals in
+#               zephyr/subsys/secure_storage/src/its/implementation.c
+#               (applied in ZEPHYR_BASE, not tf-psa-crypto) to prevent stack
+#               overflow when ITS uses AES-GCM transform.
 #
 #    Patches are only applied once; repeated builds will see "already applied"
 #    from git apply --check and skip without error.
@@ -32,35 +34,36 @@ endif()
 
 set(QCC74X_PSA_PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/patches")
 
-# Helper macro: try to apply a patch, skip if already applied
-macro(qcc74x_apply_patch patch_file)
+# Helper macro: try to apply a patch in <target_dir> (a git repo root),
+# skip if already applied
+macro(qcc74x_apply_patch target_dir patch_file)
     set(full_patch "${QCC74X_PSA_PATCH_DIR}/${patch_file}")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E chdir "${TF_PSA_CRYPTO_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E chdir "${target_dir}"
                 git apply --check "${full_patch}"
         RESULT_VARIABLE _check_result
         OUTPUT_QUIET ERROR_QUIET
     )
     if(_check_result EQUAL 0)
         execute_process(
-            COMMAND ${CMAKE_COMMAND} -E chdir "${TF_PSA_CRYPTO_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E chdir "${target_dir}"
                     git apply "${full_patch}"
             RESULT_VARIABLE _apply_result
             OUTPUT_QUIET
         )
         if(_apply_result EQUAL 0)
-            message(STATUS "Applied ${patch_file} to tf-psa-crypto")
+            message(STATUS "Applied ${patch_file} to ${target_dir}")
         else()
-            message(FATAL_ERROR "Failed to apply ${patch_file} to tf-psa-crypto")
+            message(FATAL_ERROR "Failed to apply ${patch_file} to ${target_dir}")
         endif()
     else()
         message(STATUS "Patch ${patch_file} already applied (or cannot check: skipping)")
     endif()
 endmacro()
 
-qcc74x_apply_patch(0001-add-qcc74x-to-psa-crypto-driver-wrappers.patch)
-qcc74x_apply_patch(0002-add-qcc74x-context-to-crypto-driver-contexts-primitives.patch)
-qcc74x_apply_patch(0003-secure-storage-convert-local-arrays-to-static.patch)
+qcc74x_apply_patch("${TF_PSA_CRYPTO_DIR}" 0001-add-qcc74x-to-psa-crypto-driver-wrappers.patch)
+qcc74x_apply_patch("${TF_PSA_CRYPTO_DIR}" 0002-add-qcc74x-context-to-crypto-driver-contexts-primitives.patch)
+qcc74x_apply_patch("${ZEPHYR_BASE}"       0003-secure-storage-convert-local-arrays-to-static.patch)
 
 # 2. Compile all source modules
 zephyr_sources(src/qcc74x_psa_init.c)
@@ -68,8 +71,7 @@ zephyr_sources(src/qcc74x_psa_cipher.c)
 zephyr_sources(src/qcc74x_psa_entropy.c)
 zephyr_sources_ifdef(CONFIG_QCC74X_AEAD_HW_ACCEL src/qcc74x_psa_aead.c)
 
-zephyr_library()
-zephyr_library_sources_ifdef(
+zephyr_sources_ifdef(
     CONFIG_PSA_CRYPTO_DRIVER_QCC74X_HASH
     qcc74x_psa_hash.c
 )
