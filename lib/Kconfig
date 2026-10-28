@@ -3,7 +3,7 @@
 
 config QCC74X_VIK_MEMCPY
 	bool "Use the bounded Vik memcpy implementation"
-	depends on RISCV_ISA_RV32I && LITTLE_ENDIAN
+	depends on RISCV_ISA_RV32I && LITTLE_ENDIAN && !MINIMAL_LIBC
 	default y
 	help
 	  Replace the size-optimized libc memcpy with a RV32 variant of Daniel
