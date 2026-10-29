@@ -1742,6 +1742,11 @@ static int i2c_qcc74x_pm_control(const struct device *dev,
 
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
+		/* Full re-initialisation sequence matching i2c_qcc74x_init(),
+		 * minus the one-time kernel-object setup (ring buf, mutexes,
+		 * semaphores) which live in retained SRAM. */
+
+		/* 1. GPIO mux: PDS may reset GLB_GPIO_CFG for SCL/SDA. */
 		LOG_INF("PM RESUME: applying default pinctrl");
 		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
 		if (ret < 0) {
@@ -1749,7 +1754,20 @@ static int i2c_qcc74x_pm_control(const struct device *dev,
 			return ret;
 		}
 
+		/* 2. Hardware reset: puts I2C registers in a known state,
+		 * identical to the first step in i2c_qcc74x_init(). */
+		ret = reset_line_toggle_dt(&config->reset);
+		if (ret < 0) {
+			LOG_ERR("PM RESUME: reset failed: %d", ret);
+			return ret;
+		}
+
+		/* 3. AHB clock: force off→on to bypass the -EALREADY shortcut.
+		 * qcc74x_restore_app_clocks_from_lp() gates clocks in hardware
+		 * without updating the software status register. */
 		LOG_INF("PM RESUME: enabling clock");
+		(void)clock_control_off(config->clock_dev,
+					(clock_control_subsys_t)(uintptr_t)config->clock_id);
 		ret = clock_control_on(config->clock_dev,
 				       (clock_control_subsys_t)(uintptr_t)config->clock_id);
 		if (ret != 0 && ret != -EALREADY) {
@@ -1758,7 +1776,25 @@ static int i2c_qcc74x_pm_control(const struct device *dev,
 		}
 		LOG_INF("PM RESUME: clock enabled (ret=%d)", ret);
 
+		/* 4. Clock source selection (matches init sequence). */
+		ret = clock_control_configure(
+			config->clock_dev,
+			(clock_control_subsys_t)(uintptr_t)config->clock_id,
+			(void *)&config->clock_source);
+		if (ret != 0) {
+			LOG_ERR("PM RESUME: clock_configure failed: %d", ret);
+			return ret;
+		}
+
+		/* 5. Peripheral registers: FIFO, GLB clock divider, interrupt
+		 * enables, timing — via the saved dev_config from before sleep. */
 		i2c_qcc74x_restore_hw_state(dev);
+
+		/* 6. System-level IRQ: re-enable in case PDS cleared ECLIC. */
+		if (config->irq_config_func != NULL) {
+			config->irq_config_func(dev);
+		}
+
 		LOG_INF("PM RESUME: done");
 		break;
 

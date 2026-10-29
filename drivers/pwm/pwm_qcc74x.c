@@ -27,8 +27,8 @@ LOG_MODULE_REGISTER(pwm_qcc74x);
 	2U /* size of config per channel in pwm_mc0_config1 register */
 
 #define QC7XX_PWM_MAX_CHANNELS          4U
-#define QC7XX_PWM_STATUS_DELAY_CHECK_MS 5U
-#define QC7XX_PWM_TIMEOUT_MS            100U
+#define QC7XX_PWM_STATUS_DELAY_CHECK_US 10U   /* poll interval: 10 µs */
+#define QC7XX_PWM_TIMEOUT_US            500U  /* max wait: 500 µs (~200 periods at 400 kHz) */
 #define QC7XX_PWM_MIN_PERIOD_CYCLES     2U
 #define QC7XX_PWM_REAL_CLOCK_WORKAROUND 8U
 
@@ -43,9 +43,17 @@ struct pwm_qcc74x_config {
 	const struct reset_dt_spec reset;
 };
 
+/* Per-channel state saved before suspend, restored on resume. */
+struct pwm_qcc74x_ch_state {
+	uint32_t    period;       /* period in cycles (0 = never configured) */
+	uint32_t    pulse;        /* pulse width in cycles */
+	pwm_flags_t flags;        /* PWM_POLARITY_* flags */
+};
+
 /* PWM data. */
 struct pwm_qcc74x_data {
 	struct k_mutex lock; /* Protects shared register R-M-W sequences */
+	struct pwm_qcc74x_ch_state ch[QC7XX_PWM_MAX_CHANNELS];
 };
 
 /**
@@ -66,10 +74,16 @@ static bool pwm_qcc74x_check_pwm_status(const uint32_t base_reg, const bool expe
 	 * and resumes PDS. Do not use k_msleep() here: that would enqueue the
 	 * idle thread in Zephyr's timeout queue. Do not use uptime for the
 	 * timeout either: the system clock can be paused during PDS resume.
+	 *
+	 * Poll with a 10 µs interval rather than 5 ms: the PWM hardware finishes
+	 * its current period before asserting PWM_STS_STOP, and at 400 kHz that
+	 * takes at most ~2.5 µs. A 500 µs total budget (200 periods) is ample
+	 * even if the clock source is much slower, and keeps the PM suspend path
+	 * from burning several milliseconds of busy-wait on every PDS cycle.
 	 */
-	for (uint32_t elapsed_ms = 0U;
-	     elapsed_ms <= QC7XX_PWM_TIMEOUT_MS;
-	     elapsed_ms += QC7XX_PWM_STATUS_DELAY_CHECK_MS) {
+	for (uint32_t elapsed_us = 0U;
+	     elapsed_us <= QC7XX_PWM_TIMEOUT_US;
+	     elapsed_us += QC7XX_PWM_STATUS_DELAY_CHECK_US) {
 		reg_val = sys_read32(base_reg + PWM_MC0_CONFIG0_OFFSET);
 		reg_val &= PWM_STS_STOP;
 		is_expected = expect_stopped ? (reg_val != 0) : (reg_val == 0);
@@ -77,7 +91,7 @@ static bool pwm_qcc74x_check_pwm_status(const uint32_t base_reg, const bool expe
 			return true;
 		}
 
-		k_busy_wait(QC7XX_PWM_STATUS_DELAY_CHECK_MS * USEC_PER_MSEC);
+		k_busy_wait(QC7XX_PWM_STATUS_DELAY_CHECK_US);
 	}
 
 	LOG_ERR("PWM failed to check PWM state within timeout.");
@@ -173,6 +187,27 @@ static int32_t pwm_qcc74x_stop_pwm(const uint32_t base_reg)
 		return -ETIMEDOUT;
 	}
 	return 0;
+}
+
+/**
+ * @brief Stop the PWM without waiting for hardware confirmation.
+ *
+ * Use this in the PM suspend path only. The clock is gated immediately
+ * after this call, so the PWM counter freezes regardless of whether the
+ * hardware has finished its current period. Polling pwm_qcc74x_stop_pwm()
+ * in that path would busy-spin for up to one full PWM period (e.g. 10 ms
+ * at 100 Hz), blocking every PDS entry attempt.
+ *
+ * @param base_reg  PWM base register address.
+ */
+static void pwm_qcc74x_stop_pwm_nowait(const uint32_t base_reg)
+{
+	uint32_t reg_val = sys_read32(base_reg + PWM_MC0_CONFIG0_OFFSET);
+
+	reg_val |= PWM_STOP_EN;
+	reg_val |= PWM_STOP_MODE;
+	sys_write32(reg_val, base_reg + PWM_MC0_CONFIG0_OFFSET);
+	LOG_DBG("Initiated PWM stop (no-wait, PM suspend path).");
 }
 
 /**
@@ -495,12 +530,18 @@ static int pwm_qcc74x_set_cycles(const struct device *dev, uint32_t channel, uin
 
 	if (pulse == 0U) {
 		handle_const_inactive_level(base_reg, channel);
+		data->ch[channel].period = period;
+		data->ch[channel].pulse  = 0U;
+		data->ch[channel].flags  = flags;
 		k_mutex_unlock(&data->lock);
 		return 0;
 	}
 
 	if (pulse == period) {
 		handle_const_active_level(base_reg, channel);
+		data->ch[channel].period = period;
+		data->ch[channel].pulse  = pulse;
+		data->ch[channel].flags  = flags;
 		k_mutex_unlock(&data->lock);
 		return 0;
 	}
@@ -530,9 +571,14 @@ static int pwm_qcc74x_set_cycles(const struct device *dev, uint32_t channel, uin
 	pwm_qcc74x_positive_channel_start(base_reg, channel);
 	pwm_qcc74x_negative_channel_start(base_reg, channel);
 
+	/* Save state for PM resume restore */
+	data->ch[channel].period = period;
+	data->ch[channel].pulse  = pulse;
+	data->ch[channel].flags  = flags;
+
 	k_mutex_unlock(&data->lock);
 
-	LOG_INF("Enabled positive and negative outputs for channel %d with period %d and pulse %d.",
+	LOG_DBG("Enabled positive and negative outputs for channel %d with period %d and pulse %d.",
 		channel, period_reg_val, high_threshold);
 
 	return 0;
@@ -590,22 +636,29 @@ static int pwm_qcc74x_pm_action(const struct device *dev,
 				enum pm_device_action action)
 {
 	const struct pwm_qcc74x_config *const config = dev->config;
+	struct pwm_qcc74x_data *const data = dev->data;
 	uint32_t base_reg = config->base_reg;
 	int32_t result = 0;
 
 	switch (action) {
 	case PM_DEVICE_ACTION_SUSPEND:
-		/* Disable all channel outputs */
+		/* Set all channels to inactive stop-state (PSI=0 → LOW) and
+		 * ensure PEN is enabled so the stop-state actually drives the pin.
+		 * If PEN is 0 (e.g. after a 0%/100% duty set), the output driver
+		 * goes high-impedance and the pin floats to its pull-up level
+		 * (HIGH for a typical LED pin). With PEN=1 and STOP_EN=1 the
+		 * hardware drives the pin to the PSI-defined stop level
+		 * (LOW when PSI=0). */
 		for (uint32_t ch = 0; ch < QC7XX_PWM_MAX_CHANNELS; ch++) {
-			pwm_qcc74x_positive_channel_stop(base_reg, ch);
-			pwm_qcc74x_negative_channel_stop(base_reg, ch);
+			set_channel_inactive(base_reg, ch);           /* PSI=0, NSI=0 */
+			pwm_qcc74x_positive_channel_start(base_reg, ch); /* PEN=1 */
 		}
-		/* Stop PWM */
-		result = pwm_qcc74x_stop_pwm(base_reg);
-		if (result != 0) {
-			LOG_ERR("PM suspend: failed to stop PWM (%d)", result);
-			return result;
-		}
+		/* Issue stop without waiting for hardware confirmation.
+		 * The clock is gated in the next step, which freezes the PWM
+		 * counter immediately. Waiting for PWM_STS_STOP here would
+		 * busy-spin for up to one full PWM period (potentially tens of
+		 * milliseconds), stalling every PDS entry. */
+		pwm_qcc74x_stop_pwm_nowait(base_reg);
 		/* Gate clock */
 		result = clock_control_off(config->clock_dev,
 					   (clock_control_subsys_t)(uintptr_t)config->clock_id);
@@ -617,14 +670,36 @@ static int pwm_qcc74x_pm_action(const struct device *dev,
 		break;
 
 	case PM_DEVICE_ACTION_RESUME:
-		/* Re-enable clock */
+		/* Force peripheral clock re-enable after PDS wake.
+		 * qcc74x_restore_app_clocks_from_lp() writes GLB_CGEN_CFG1 as
+		 * a complete value which gates the PWM peripheral clock in
+		 * hardware, but the software clock-status register is not
+		 * updated and still reads ON.  clock_control_on() would then
+		 * return -EALREADY without calling qc7xx_peripheral_clock_control,
+		 * leaving the hardware gate closed and the PWM counter with no
+		 * clock.  Calling off() first resets the software state so the
+		 * subsequent on() unconditionally opens the hardware gate. */
+		(void)clock_control_off(config->clock_dev,
+					(clock_control_subsys_t)(uintptr_t)config->clock_id);
 		result = clock_control_on(config->clock_dev,
 					  (clock_control_subsys_t)(uintptr_t)config->clock_id);
 		if (result != 0 && result != -EALREADY) {
 			LOG_ERR("PM resume: failed to enable clock (%d)", result);
 			return result;
 		}
-		/* Restore clock divider */
+		/* Reset the PWM peripheral.  stop_pwm_nowait() asserted STOP_EN
+		 * and then the clock was gated immediately, so the counter never
+		 * completed its stop sequence (STS_STOP stayed 0).  Writing
+		 * STOP_EN=0 while STS_STOP=0 is rejected by the hardware — the
+		 * write is silently ignored.  A hardware reset is the only
+		 * reliable way to get STOP_EN back to 0 without requiring the
+		 * counter to actually finish stopping first. */
+		result = reset_line_toggle_dt(&config->reset);
+		if (result < 0) {
+			LOG_ERR("PM resume: PWM reset failed (%d)", result);
+			return result;
+		}
+		/* Restore clock divider (reset cleared CLK_DIV/CLK_SEL to 0). */
 		result = clock_control_configure(
 			config->clock_dev,
 			(clock_control_subsys_t)(uintptr_t)config->clock_id,
@@ -633,10 +708,39 @@ static int pwm_qcc74x_pm_action(const struct device *dev,
 			LOG_ERR("PM resume: failed to configure clock (%d)", result);
 			return result;
 		}
-		/* Restart PWM */
+		/* Start the counter and wait for it to actually be running
+		 * (STS_STOP=0).  After reset the counter is in stopped state;
+		 * pwm_qcc74x_start_pwm() clears STOP_EN and polls STS_STOP
+		 * with a 500 µs budget.  Without this step the counter stays
+		 * stopped and PEN=1 alone is not enough to produce output. */
 		result = pwm_qcc74x_start_pwm(base_reg);
 		if (result != 0) {
-			LOG_ERR("PM resume: failed to start PWM (%d)", result);
+			LOG_WRN("PM resume: start_pwm timeout, continuing");
+		}
+		/* Restore per-channel period, duty cycle and polarity.
+		 * period == 0 means the channel was never configured by the
+		 * application, so leave it at the driver default. */
+		for (uint32_t ch = 0; ch < QC7XX_PWM_MAX_CHANNELS; ch++) {
+			LOG_DBG("PM resume: ch%u period=%u pulse=%u",
+				ch, data->ch[ch].period, data->ch[ch].pulse);
+			if (data->ch[ch].period == 0U) {
+				continue;
+			}
+			result = pwm_qcc74x_set_cycles(dev, ch,
+						       data->ch[ch].period,
+						       data->ch[ch].pulse,
+						       data->ch[ch].flags);
+			if (result != 0) {
+				LOG_ERR("PM resume: failed to restore ch%u (%d)", ch, result);
+				/* Non-fatal: continue restoring other channels */
+			}
+		}
+		/* Note: the hardware reset above clears GLB_GPIO_CFG for the PWM
+		 * output pin (GPIO20 reverts to GPIO mode).  Re-apply the default
+		 * pinctrl state to restore GPIO20 → PWM_CH0P mux. */
+		result = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		if (result < 0) {
+			LOG_ERR("PM resume: failed to restore pinctrl (%d)", result);
 			return result;
 		}
 		LOG_DBG("PWM resumed.");
