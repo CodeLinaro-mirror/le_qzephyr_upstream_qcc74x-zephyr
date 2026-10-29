@@ -5,7 +5,11 @@ config SOC_SERIES_QCC75X
 	bool
 	select SOC_FAMILY_QCOM_QCC7XX
 
-config SOC_QCC75X
+config SOC_QCC7510
+	bool
+	select SOC_SERIES_QCC75X
+
+config SOC_QCC7512
 	bool
 	select SOC_SERIES_QCC75X
 
@@ -13,7 +17,8 @@ config GEN_SW_ISR_TABLE
 	bool
 
 config SOC
-	default "qcc75x" if SOC_QCC75X
+	default "qcc7510" if SOC_QCC7510
+	default "qcc7512" if SOC_QCC7512
 
 config SOC_SERIES
 	default "qcc75x" if SOC_SERIES_QCC75X

@@ -19,7 +19,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(qcc7xx_clk_pwm_ll, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 
-#ifdef CONFIG_SOC_SERIES_QCR373
+#ifdef CONFIG_SOC_SERIES_QCR3XX
 #include <zephyr/dt-bindings/clock/qcr373-clock.h>
 #include <hardware/qcr373.h>
 #endif

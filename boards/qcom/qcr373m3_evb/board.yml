@@ -1,0 +1,12 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+board:
+  name: qcr373m3_evb
+  full_name: QCR373M Evaluation Kit
+  vendor: qcom
+  socs:
+    - name: qcr3733
+      variants:
+        - name: ap
+        - name: np

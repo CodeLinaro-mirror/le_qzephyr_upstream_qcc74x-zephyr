@@ -1,0 +1,41 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+config SOC_SERIES_QCR3XX
+	bool
+	select SOC_FAMILY_QCOM_QCC7XX
+
+config SOC_QCR3034
+	bool
+	select SOC_SERIES_QCR3XX
+
+config SOC_QCR3733
+	bool
+	select SOC_SERIES_QCR3XX
+
+config SOC_QCR3734
+	bool
+	select SOC_SERIES_QCR3XX
+
+config SOC_QCR3XX_AP
+	bool
+	help
+	  Build an image for the QCR373 application processor. In a multi-image
+	  build, the AP image is responsible for loading and starting the NP image.
+
+config SOC_QCR3XX_NP
+	bool
+	help
+	  Build the QCR373 network processor child image. The NP image is not a
+	  standalone boot image and must be loaded and started by the AP image.
+
+config GEN_SW_ISR_TABLE
+	bool
+
+config SOC
+	default "qcr3034" if SOC_QCR3034
+	default "qcr3733" if SOC_QCR3733
+	default "qcr3734" if SOC_QCR3734
+
+config SOC_SERIES
+	default "qcr3xx" if SOC_SERIES_QCR3XX

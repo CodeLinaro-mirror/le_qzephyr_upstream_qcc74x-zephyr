@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
 # SPDX-License-Identifier: BSD-3-Clause
 
 config PWM_QCC74X
@@ -7,5 +7,6 @@ config PWM_QCC74X
 	depends on DT_HAS_QCOM_QCC74X_PWM_ENABLED
 	depends on PWM
 	select PINCTRL
+	select PM_DEVICE if PM
 	help
 	  Enable PWM driver for Opal MCUs.

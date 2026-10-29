@@ -15,7 +15,7 @@
 #ifdef CONFIG_SOC_SERIES_QCC75X
 #include <qcc75x_clock.h>
 #endif
-#ifdef CONFIG_SOC_SERIES_QCR373
+#ifdef CONFIG_SOC_SERIES_QCR3XX
 #include <qcr373_clock.h>
 #endif
 

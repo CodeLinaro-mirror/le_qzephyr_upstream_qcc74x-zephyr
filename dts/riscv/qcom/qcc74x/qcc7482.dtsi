@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include <qcom/qcc74x/qcc748i.dtsi>
+
+/ {
+	chosen {
+		zephyr,sram = &psram;
+	};
+};
+
+&psram {
+	reg = <0xa8000000 DT_SIZE_M(4)>;
+	status = "okay";
+};

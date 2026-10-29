@@ -18,6 +18,7 @@
 #include <zephyr/sys/crc.h>
 #include <zephyr/drivers/reset.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/pm/device.h>
 #ifdef CONFIG_SPI_QCC74X_DMA
 #include <zephyr/drivers/dma/dma_qcc74x.h>
 #endif
@@ -167,6 +168,9 @@ struct spi_qcc74x_data {
 	struct spi_context ctx;
 	struct qc7xx_device_s spi_hal_device;
 	uint8_t clock_div;
+	/* Last active SPI configuration, restored after device resume. */
+	struct spi_config pm_saved_config;
+	bool pm_config_valid;
 #ifdef CONFIG_SPI_QCC74X_DMA
 	struct spi_qcc74x_dma_data dma[NUM_OF_DIRECTION];
 	bool dma_done;
@@ -881,6 +885,8 @@ static int32_t spi_qcc74x_configure(const struct device *dev, const struct spi_c
 	qc7xx_spi_tcint_mask(&data->spi_hal_device, false);
 
 	data->ctx.config = spi_config;
+	data->pm_saved_config = *spi_config;
+	data->pm_config_valid = true;
 	LOG_INF("SPI configuration completed successfully");
 	return 0;
 }
@@ -2587,6 +2593,79 @@ static int spi_qcc74x_init(const struct device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_PM_DEVICE
+/**
+ * @brief Restore the SPI controller after a low-power suspend.
+ *
+ * PDS1 can remove the SPI clock and lose the controller register state while
+ * the Zephyr device object remains alive.  Re-applying the saved SPI
+ * configuration is therefore required before the next transfer.
+ */
+static int spi_qcc74x_pm_control(const struct device *dev, enum pm_device_action action)
+{
+	const struct spi_qcc74x_config *const config = dev->config;
+	struct spi_qcc74x_data *const data = dev->data;
+	int ret;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		/* PM is expected to run while the SPI context is idle. */
+		disable_spi(config->base_reg);
+		clear_fifos(config->base_reg);
+
+		ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_SLEEP);
+		if (ret < 0 && ret != -ENOENT) {
+			LOG_ERR("SPI PM suspend pinctrl failed: %d", ret);
+			return ret;
+		}
+
+		ret = clock_control_off(config->clock_dev,
+					(clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (ret != 0 && ret != -EALREADY) {
+			LOG_ERR("SPI PM suspend clock off failed: %d", ret);
+			return ret;
+		}
+		return 0;
+
+	case PM_DEVICE_ACTION_RESUME:
+		ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		if (ret < 0) {
+			LOG_ERR("SPI PM resume pinctrl failed: %d", ret);
+			return ret;
+		}
+
+		ret = clock_control_on(config->clock_dev,
+				       (clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (ret != 0 && ret != -EALREADY) {
+			LOG_ERR("SPI PM resume clock on failed: %d", ret);
+			return ret;
+		}
+
+		ret = clock_control_configure(config->clock_dev,
+					      (clock_control_subsys_t)(uintptr_t)config->clock_id,
+					      (void *)&config->clock_src);
+		if (ret != 0) {
+			LOG_ERR("SPI PM resume clock configure failed: %d", ret);
+			return ret;
+		}
+
+		if (data->pm_config_valid) {
+			ret = spi_qcc74x_configure(dev, &data->pm_saved_config);
+			if (ret != 0) {
+				LOG_ERR("SPI PM resume controller restore failed: %d", ret);
+				return ret;
+			}
+		} else {
+			LOG_DBG("SPI PM resume has no saved transfer configuration");
+		}
+		return 0;
+
+	default:
+		return -ENOTSUP;
+	}
+}
+#endif /* CONFIG_PM_DEVICE */
+
 static const struct spi_driver_api spi_qcc74x_driver_api = {
 	.transceive = spi_qcc74x_transceive_sync,
 #if defined(CONFIG_SPI_ASYNC) && defined(CONFIG_SPI_QCC74X_INTERRUPT)
@@ -2646,8 +2725,12 @@ static const struct spi_driver_api spi_qcc74x_driver_api = {
 		IF_ENABLED(CONFIG_SPI_QCC74X_DMA, (.dma = DMAS_DECL(n),)) .reset =                      \
 							RESET_DT_SPEC_INST_GET(n),                 \
 	};                                                                                         \
-	DEVICE_DT_INST_DEFINE(n, spi_qcc74x_init, NULL, &spi##n##_qcc74x_data, &spi_qcc74x_config_##n,   \
-			      POST_KERNEL, CONFIG_SPI_INIT_PRIORITY, &spi_qcc74x_driver_api);        \
+	IF_ENABLED(CONFIG_PM_DEVICE,                                                            \
+		(PM_DEVICE_DT_INST_DEFINE(n, spi_qcc74x_pm_control);))                                  \
+	DEVICE_DT_INST_DEFINE(n, spi_qcc74x_init,                                                 \
+				  PM_DEVICE_DT_INST_GET(n), &spi##n##_qcc74x_data,               \
+				  &spi_qcc74x_config_##n, POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,  \
+				  &spi_qcc74x_driver_api);                                      \
 	SPI_QCC74X_IRQ_HANDLER(n)
 
 DT_INST_FOREACH_STATUS_OKAY(SPI_QCC74X_DEVICE)

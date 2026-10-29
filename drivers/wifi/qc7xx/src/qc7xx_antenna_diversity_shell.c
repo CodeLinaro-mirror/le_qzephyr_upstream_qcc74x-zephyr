@@ -80,17 +80,37 @@ static int qc7xx_antenna_switch_shell_cmd(const struct shell *shell, size_t argc
 	return 0;
 }
 
+#define ANTENNA_SCAN_HELP                                                                          \
+	"Scan on each antenna: [-s <ssid>] [-c <channels>] "                                       \
+	"[-b <bssid>] [-t <dwell_ms>]"
+#define ANTENNA_CONNECT_HELP                                                                       \
+	"Scan and connect: [-b <bssid>] [-2|-3|-w] [-f <0|1|2>] "                                  \
+	"[-D] [-c <channel>] <ssid> [password]"
+#define ANTENNA_STATUS_HELP "Show antenna diversity status"
+#define ANTENNA_SWITCH_HELP "Select antenna 0 or 1"
+
 #if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY_STATIC)
-SHELL_CMD_ARG_REGISTER(wifi_antenna_scan, NULL,
-		       "Scan on each antenna: [-s <ssid>] [-c <channels>] "
-		       "[-b <bssid>] [-t <dwell_ms>]",
+SHELL_CMD_ARG_REGISTER(wifi_antenna_scan, NULL, ANTENNA_SCAN_HELP,
 		       qc7xx_antenna_scan_shell_cmd, 1, 8);
-SHELL_CMD_ARG_REGISTER(wifi_antenna_connect, NULL,
-		       "Scan and connect: [-b <bssid>] [-2|-3|-w] [-f <0|1|2>] "
-		       "[-D] [-c <channel>] <ssid> [password]",
+SHELL_CMD_ARG_REGISTER(wifi_antenna_connect, NULL, ANTENNA_CONNECT_HELP,
 		       qc7xx_antenna_connect_shell_cmd, 2, 12);
 #endif
-SHELL_CMD_ARG_REGISTER(wifi_antenna_status, NULL, "Show antenna diversity status",
+SHELL_CMD_ARG_REGISTER(wifi_antenna_status, NULL, ANTENNA_STATUS_HELP,
 		       qc7xx_antenna_status_shell_cmd, 1, 0);
-SHELL_CMD_ARG_REGISTER(wifi_antenna_switch, NULL, "Select antenna 0 or 1",
+SHELL_CMD_ARG_REGISTER(wifi_antenna_switch, NULL, ANTENNA_SWITCH_HELP,
 		       qc7xx_antenna_switch_shell_cmd, 2, 0);
+
+/* Spelled out instead of SHELL_STATIC_SUBCMD_SET_CREATE(), which is file-local. */
+static const struct shell_static_entry qc7xx_antenna_shell_entries[] = {
+#if defined(CONFIG_QCC74X_WIFI_ANTENNA_DIVERSITY_STATIC)
+	SHELL_CMD_ARG(scan, NULL, ANTENNA_SCAN_HELP, qc7xx_antenna_scan_shell_cmd, 1, 8),
+	SHELL_CMD_ARG(connect, NULL, ANTENNA_CONNECT_HELP, qc7xx_antenna_connect_shell_cmd, 2, 12),
+#endif
+	SHELL_CMD_ARG(status, NULL, ANTENNA_STATUS_HELP, qc7xx_antenna_status_shell_cmd, 1, 0),
+	SHELL_CMD_ARG(switch, NULL, ANTENNA_SWITCH_HELP, qc7xx_antenna_switch_shell_cmd, 2, 0),
+	SHELL_SUBCMD_SET_END,
+};
+
+const union shell_cmd_entry qc7xx_antenna_shell_subcmds = {
+	.entry = qc7xx_antenna_shell_entries,
+};

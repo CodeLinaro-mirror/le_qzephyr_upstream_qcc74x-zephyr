@@ -1,0 +1,12 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+config QCC74X_VIK_MEMCPY
+	bool "Use the bounded Vik memcpy implementation"
+	depends on RISCV_ISA_RV32I && LITTLE_ENDIAN
+	default y
+	help
+	  Replace the size-optimized libc memcpy with a RV32 variant of Daniel
+	  Vik's word-copy implementation. Misaligned sources use aligned loads
+	  plus shifts without reading outside the requested source range.
+	  See lib/lib_vikmemcpy.c.

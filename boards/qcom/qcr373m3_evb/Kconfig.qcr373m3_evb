@@ -1,0 +1,7 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+config BOARD_QCR373M3_EVB
+	select SOC_QCR3733
+	select SOC_QCR3XX_AP if !BOARD_QCR373M3_EVB_QCR3XX_NP
+	select SOC_QCR3XX_NP if BOARD_QCR373M3_EVB_QCR3XX_NP

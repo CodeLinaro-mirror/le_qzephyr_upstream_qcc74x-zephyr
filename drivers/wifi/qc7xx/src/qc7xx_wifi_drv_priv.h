@@ -61,6 +61,8 @@ struct qc7xx_wifi_runtime {
 	uint32_t monitor_rx_count;
 	uint32_t monitor_rx_dropped;
 	uint8_t state;
+	/* A user-requested connection is outstanding. */
+	bool conn_requested;
 };
 
 extern struct net_if *qc7xx_wifi_iface;
@@ -78,5 +80,7 @@ void net_al_tx_buf_init(void);
 void *net_al_tx_buf_alloc(int32_t timeout);
 void net_al_tx_buf_free(void *buf);
 void net_al_tx_buf_set_len(void *buf, int length);
+void *net_al_tx_buf_data(void *buf);
+void net_al_tx_buf_get(uint32_t *tot, uint32_t *used);
 
 #endif /* ZEPHYR_DRIVERS_WIFI_QC7XX_WIFI_DRV_PRIV_H_ */

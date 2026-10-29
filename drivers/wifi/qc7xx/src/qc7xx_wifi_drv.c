@@ -49,7 +49,7 @@
 
 LOG_MODULE_REGISTER(qc7xx_wifi, CONFIG_WIFI_LOG_LEVEL);
 
-#if defined(CONFIG_QCC74X_PM_PDS15)
+#if defined(CONFIG_QCC74X_PM_LPFW)
 uint16_t qc7xx_lp_beacon_interval_get(void);
 uint8_t qc7xx_lp_beacon_dtim_period_get(void);
 #endif
@@ -66,6 +66,16 @@ uint8_t qc7xx_lp_beacon_dtim_period_get(void);
 #define QC7XX_WIFI_PS_TIMEOUT_MIN_MS 10U
 #define QC7XX_WIFI_PS_TIMEOUT_MAX_MS 80U
 #define QC7XX_WIFI_PS_LISTEN_INTERVAL_MAX 20U
+#define QC7XX_WIFI_RECONNECT_DELAY_MS 1000U
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * Settling time between the STA associating and announcing the SoftAP channel
+ * switch. Also debounces a reconnect or roam, as each one reschedules the work.
+ */
+#define QC7XX_WIFI_AP_FOLLOW_STA_DELAY_MS 500U
+/* Beacons to announce before switching, i.e. the delay in TBTTs. */
+#define QC7XX_WIFI_AP_CSA_COUNT 10U
+#endif
 #define QC7XX_TWT_WAKE_DURATION_256_US 256U
 #define QC7XX_TWT_WAKE_DURATION_TU_US 1024U
 
@@ -81,12 +91,110 @@ static bool qc7xx_ap_sta_cache_valid[NX_REMOTE_STA_MAX];
 #endif
 
 static struct net_mgmt_event_callback qc7xx_dhcp_cb;
+static struct k_work_delayable qc7xx_wifi_reconnect_work;
+static struct k_work_delayable qc7xx_wifi_restore_ps_work;
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+static struct k_work_delayable qc7xx_wifi_ap_follow_sta_work;
+#endif
+static wifi_mgmr_sta_connect_params_t qc7xx_wifi_reconnect_config;
+static bool qc7xx_wifi_reconnect_config_valid;
+static bool qc7xx_wifi_low_power_reconnecting;
+static bool qc7xx_wifi_autoconnect_pending;
 static wifi_conf_t qc7xx_wifi_conf = {
 	.country_code = "CN",
 };
 
 extern int fhost_tx_start(net_al_if_t net_if, net_al_tx_t net_buf,
 			  cb_fhost_tx cfm_cb, void *cfm_cb_arg);
+
+#if defined(CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE) && CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH > 1
+extern int fhost_tx_start_batch(net_al_if_t *net_if, net_al_tx_t *net_buf,
+				 uint8_t count);
+
+struct qc7xx_wifi_tx_batch_entry {
+	net_al_if_t net_if;
+	net_al_tx_t net_buf;
+};
+
+K_MUTEX_DEFINE(qc7xx_wifi_tx_batch_lock);
+static struct qc7xx_wifi_tx_batch_entry
+	qc7xx_wifi_tx_batch[CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH];
+static unsigned int qc7xx_wifi_tx_batch_count;
+
+static void qc7xx_wifi_tx_batch_flush_locked(void)
+{
+	net_al_if_t net_if[CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH];
+	net_al_tx_t net_buf[CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH];
+	unsigned int count = qc7xx_wifi_tx_batch_count;
+
+	for (unsigned int i = 0; i < count; i++) {
+		net_if[i] = qc7xx_wifi_tx_batch[i].net_if;
+		net_buf[i] = qc7xx_wifi_tx_batch[i].net_buf;
+	}
+	qc7xx_wifi_tx_batch_count = 0;
+
+	if (count != 0U) {
+		(void)fhost_tx_start_batch(net_if, net_buf, count);
+	}
+}
+
+static void qc7xx_wifi_tx_batch_flush_work(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	k_mutex_lock(&qc7xx_wifi_tx_batch_lock, K_FOREVER);
+	qc7xx_wifi_tx_batch_flush_locked();
+	k_mutex_unlock(&qc7xx_wifi_tx_batch_lock);
+}
+
+K_WORK_DELAYABLE_DEFINE(qc7xx_wifi_tx_batch_work, qc7xx_wifi_tx_batch_flush_work);
+
+static bool qc7xx_wifi_tx_batch_eligible(const uint8_t *frame, size_t len)
+{
+	size_t ip_offset = 14U;
+	uint16_t ethertype;
+
+	if (len < 512U) {
+		return false;
+	}
+
+	ethertype = sys_get_be16(frame + 12);
+	if (ethertype == 0x8100U) {
+		ethertype = sys_get_be16(frame + 16);
+		ip_offset += 4U;
+	}
+
+	if (ethertype == 0x0800U) {
+		return frame[ip_offset + 9] == 6U || frame[ip_offset + 9] == 17U;
+	}
+	if (ethertype == 0x86ddU) {
+		return frame[ip_offset + 6] == 6U || frame[ip_offset + 6] == 17U;
+	}
+	return false;
+}
+
+static void qc7xx_wifi_tx_batch_purge(net_al_if_t net_if)
+{
+	unsigned int dst = 0;
+
+	k_mutex_lock(&qc7xx_wifi_tx_batch_lock, K_FOREVER);
+	for (unsigned int i = 0; i < qc7xx_wifi_tx_batch_count; i++) {
+		if (qc7xx_wifi_tx_batch[i].net_if == net_if) {
+			net_al_tx_buf_free(qc7xx_wifi_tx_batch[i].net_buf);
+		} else {
+			qc7xx_wifi_tx_batch[dst++] = qc7xx_wifi_tx_batch[i];
+		}
+	}
+	qc7xx_wifi_tx_batch_count = dst;
+	if (dst == 0U) {
+		(void)k_work_cancel_delayable(&qc7xx_wifi_tx_batch_work);
+	} else {
+		(void)k_work_reschedule(&qc7xx_wifi_tx_batch_work,
+					K_MSEC(CONFIG_QCC74X_WIFI_TX_BATCH_FLUSH_MS));
+	}
+	k_mutex_unlock(&qc7xx_wifi_tx_batch_lock);
+}
+#endif
 
 #ifdef CONFIG_WIFI_QCC75X
 extern int wifi_mgmr_mac_set(uint8_t mac[6]);
@@ -428,6 +536,37 @@ static uint16_t qc7xx_wifi_channel_to_freq(uint16_t channel, enum wifi_frequency
 		return 0U;
 	}
 }
+
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * The channel the SoftAP is operating on right now.
+ *
+ * wifi_mgmr_get_ap_info() cannot be used for this: its ucChannel is derived
+ * from the requested configuration when the AP starts and is never revisited,
+ * so it still reports the original channel after a channel switch. Ask the
+ * firmware's VIF instead, which fhost_get_vif_status() reports as its current
+ * operating channel.
+ *
+ * Returns 0 if the channel is unknown, e.g. while the AP is down.
+ */
+static uint8_t qc7xx_wifi_ap_operating_channel(void)
+{
+	struct fhost_vif_status status;
+	int channel;
+
+	if (fhost_get_vif_status(MGMR_VIF_AP, &status) != 0) {
+		return 0U;
+	}
+
+	if (status.chan.prim20_freq == 0U) {
+		return 0U;
+	}
+
+	channel = phy_freq_to_channel(status.chan.band, status.chan.prim20_freq);
+
+	return channel > 0 ? (uint8_t)channel : 0U;
+}
+#endif
 
 static bool qc7xx_wifi_state_connected(uint8_t state)
 {
@@ -791,6 +930,9 @@ static void qc7xx_net_mgmt_event_handler(struct net_mgmt_event_callback *cb, uin
 	case NET_EVENT_IPV4_DHCP_BOUND:
 		platform_post_event(EV_WIFI, CODE_WIFI_ON_GOT_IP, 0);
 		wifi_mgmt_raise_connect_result_event(iface, 0);
+		if (iface == qc7xx_wifi_iface && qc7xx_wifi_low_power_reconnecting) {
+			(void)k_work_reschedule(&qc7xx_wifi_restore_ps_work, K_NO_WAIT);
+		}
 		break;
 	default:
 		break;
@@ -880,22 +1022,53 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 	}
 #endif
 
+	pkt_len = net_pkt_get_len(pkt);
+
 	net_buf = net_al_tx_buf_alloc(TX_BUF_ALLOC_TIMEOUT);
 	if (net_buf == NULL) {
 		k_sleep(K_MSEC(1));
 		return -ENOMEM;
 	}
 
-	pkt_len = net_pkt_get_len(pkt);
 	net_al_tx_buf_set_len(net_buf, pkt_len);
 
-	if (net_pkt_read(pkt, net_buf, pkt_len) < 0) {
+	res = net_pkt_read(pkt, net_al_tx_buf_data(net_buf), pkt_len);
+	if (res < 0) {
 		res = -EIO;
 		goto out;
 	}
 
+#if defined(CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE) && CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH > 1
+	k_mutex_lock(&qc7xx_wifi_tx_batch_lock, K_FOREVER);
+	if ((data == &qc7xx_data && data->state != QC7XX_STA_CONNECTED)
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	    || (data == &qc7xx_ap_sta_data && data->state != QC7XX_AP_STARTED &&
+		data->state != QC7XX_AP_CONNECTED)
+#endif
+	) {
+		res = -ENOTCONN;
+	} else if (qc7xx_wifi_tx_batch_eligible(net_al_tx_buf_data(net_buf), pkt_len)) {
+		unsigned int index = qc7xx_wifi_tx_batch_count++;
+
+		qc7xx_wifi_tx_batch[index].net_if = (net_al_if_t)iface;
+		qc7xx_wifi_tx_batch[index].net_buf = net_buf;
+		if (qc7xx_wifi_tx_batch_count == CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH) {
+			qc7xx_wifi_tx_batch_flush_locked();
+		} else if (index == 0U) {
+			(void)k_work_reschedule(&qc7xx_wifi_tx_batch_work,
+						K_MSEC(CONFIG_QCC74X_WIFI_TX_BATCH_FLUSH_MS));
+		}
+		res = 0;
+	} else {
+		qc7xx_wifi_tx_batch_flush_locked();
+		res = fhost_tx_start((net_al_if_t)iface, net_buf, NULL, NULL);
+	}
+	k_mutex_unlock(&qc7xx_wifi_tx_batch_lock);
+#else
 	res = fhost_tx_start((net_al_if_t)iface, net_buf, NULL, NULL);
+#endif
 	if (res < 0) {
+		/* A submitted buffer is released by FHOST, including on rejection. */
 		goto out;
 	}
 	net_buf = NULL;
@@ -912,10 +1085,9 @@ static int qc7xx_wifi_send(const struct device *dev, struct net_pkt *pkt)
 		data->stats.unicast.tx++;
 	}
 #endif
-
 	return 0;
 
-out:
+	out:
 	if (net_buf != NULL) {
 		net_al_tx_buf_free(net_buf);
 	}
@@ -925,25 +1097,167 @@ out:
 #endif
 	return res;
 }
-
 static int qc7xx_wifi_disconnect(const struct device *dev)
 {
 	struct qc7xx_wifi_runtime *data = dev->data;
-	bool disconnecting = data == &qc7xx_data && data->state == QC7XX_STA_CONNECTED;
+	uint8_t previous_state = data->state;
+	bool disconnecting = data == &qc7xx_data &&
+		(previous_state == QC7XX_STA_CONNECTING || previous_state == QC7XX_STA_CONNECTED);
+
+	if (data == &qc7xx_data) {
+		qc7xx_wifi_low_power_reconnecting = false;
+		qc7xx_wifi_reconnect_config_valid = false;
+		qc7xx_wifi_autoconnect_pending = false;
+		(void)k_work_cancel_delayable(&qc7xx_wifi_reconnect_work);
+		(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
+		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) &&
+		    wifi_mgmr_sta_autoconnect_disable() != 0) {
+			LOG_WRN("Failed to disable Wi-Fi auto reconnect during disconnect");
+		}
+	}
 
 	if (disconnecting) {
 		data->state = QC7XX_STA_DISCONNECTING;
+		data->conn_requested = false;
+#if defined(CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE) && CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH > 1
+		qc7xx_wifi_tx_batch_purge((net_al_if_t)qc7xx_wifi_iface);
+#endif
 	}
 
 	if (wifi_sta_disconnect() != 0) {
 		if (disconnecting) {
-			data->state = QC7XX_STA_CONNECTED;
+			data->state = previous_state;
 		}
 		return -EAGAIN;
+	}
+	if (previous_state == QC7XX_STA_CONNECTING && data->state == QC7XX_STA_DISCONNECTING) {
+		data->state = QC7XX_STA_STARTED;
+		wifi_mgmt_raise_disconnect_result_event(qc7xx_wifi_iface, 0);
 	}
 
 	return 0;
 }
+static void qc7xx_wifi_reconnect_work_handler(struct k_work *work)
+{
+	int ret;
+
+	ARG_UNUSED(work);
+
+	if (!qc7xx_wifi_low_power_reconnecting ||
+	    !qc7xx_wifi_reconnect_config_valid ||
+	    qc7xx_data.state == QC7XX_STA_CONNECTED) {
+		return;
+	}
+
+	qc7xx_data.state = QC7XX_STA_CONNECTING;
+	ret = wifi_mgmr_sta_connect(&qc7xx_wifi_reconnect_config);
+	if (ret != 0) {
+		qc7xx_data.state = QC7XX_STA_STARTED;
+		(void)k_work_reschedule(&qc7xx_wifi_reconnect_work,
+					K_MSEC(QC7XX_WIFI_RECONNECT_DELAY_MS));
+	}
+}
+
+static void qc7xx_wifi_restore_ps_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (!qc7xx_wifi_low_power_reconnecting ||
+	    qc7xx_data.state != QC7XX_STA_CONNECTED) {
+		return;
+	}
+
+	if (qc7xx_wifi_apply_sta_ps(&qc7xx_data, WIFI_PS_ENABLED) != 0) {
+		LOG_WRN("Failed to restore Wi-Fi power save after DHCP; retrying");
+		(void)k_work_reschedule(&qc7xx_wifi_restore_ps_work,
+					K_MSEC(QC7XX_WIFI_RECONNECT_DELAY_MS));
+		return;
+	}
+
+	qc7xx_wifi_low_power_reconnecting = false;
+}
+
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+/*
+ * Align the SoftAP with the STA channel once the STA associates.
+ *
+ * wifi_mgmr_ap_start() already follows the STA channel, but only when the STA is
+ * connected at the time the AP comes up. Starting the AP first leaves the two on
+ * separate channels and the firmware time-shares between them (MCC), with no
+ * corrective path of its own, so announce a channel switch here.
+ *
+ * Runs on the system work queue rather than from the event handler, as
+ * fhost_wpa_execute_cmd() blocks until the supplicant has run the command and
+ * the handler's work queue also carries the remaining Wi-Fi events.
+ */
+static void qc7xx_wifi_ap_follow_sta_work_handler(struct k_work *work)
+{
+	int sta_channel = 0;
+	uint8_t ap_channel;
+	uint16_t freq;
+	int ret;
+
+	ARG_UNUSED(work);
+
+	if (qc7xx_data.state != QC7XX_STA_CONNECTED) {
+		return;
+	}
+
+	if (qc7xx_ap_sta_data.state != QC7XX_AP_STARTED &&
+	    qc7xx_ap_sta_data.state != QC7XX_AP_CONNECTED &&
+	    qc7xx_ap_sta_data.state != QC7XX_AP_DISCONNECTED) {
+		return;
+	}
+
+	if (wifi_mgmr_sta_channel_get(&sta_channel) != 0 || sta_channel <= 0) {
+		LOG_WRN("No STA channel to align the SoftAP with");
+		return;
+	}
+
+	/*
+	 * Must be the operating channel rather than the configured one, so that
+	 * a reconnect onto the channel the AP already follows does not announce
+	 * a second, redundant switch.
+	 */
+	ap_channel = qc7xx_wifi_ap_operating_channel();
+	if (ap_channel == 0U) {
+		LOG_WRN("No SoftAP channel to compare against");
+		return;
+	}
+
+	if ((int)ap_channel == sta_channel) {
+		return;
+	}
+
+	/*
+	 * A CSA moves the AP within its band; it cannot move it across bands,
+	 * and associated stations need not support the target band at all.
+	 */
+	if ((sta_channel > 14) != (ap_channel > 14U)) {
+		LOG_WRN("Not moving the SoftAP from channel %u to STA channel %d: "
+			"different band",
+			ap_channel, sta_channel);
+		return;
+	}
+
+	freq = qc7xx_wifi_channel_to_freq((uint16_t)sta_channel, WIFI_FREQ_BAND_UNKNOWN);
+	if (freq == 0U) {
+		LOG_WRN("No frequency for STA channel %d", sta_channel);
+		return;
+	}
+
+	/* hostapd parses "CHAN_SWITCH <cs_count> <freq>", in MHz. */
+	ret = fhost_wpa_execute_cmd(MGMR_VIF_AP, NULL, NULL, 2000, "CHAN_SWITCH %u %u",
+				    QC7XX_WIFI_AP_CSA_COUNT, (unsigned int)freq);
+	if (ret != 0) {
+		LOG_WRN("Failed to move the SoftAP from channel %u to %d: %d", ap_channel,
+			sta_channel, ret);
+		return;
+	}
+
+	LOG_INF("SoftAP following STA to channel %d (%u MHz)", sta_channel, freq);
+}
+#endif
 
 static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_params *params)
 {
@@ -965,8 +1279,25 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	}
 
 	if (data->state == QC7XX_STA_CONNECTING || data->state == QC7XX_STA_CONNECTED) {
-		return -EALREADY;
+		if (data->state != QC7XX_STA_CONNECTING || !qc7xx_wifi_autoconnect_pending) {
+			return -EALREADY;
+		}
+
+		/*
+		 * Only the auto-reconnect loop holds CONNECTING. Its network
+		 * block keeps the previous credentials and cannot be rewritten
+		 * in place, so tear the loop down and reconfigure from scratch.
+		 */
+		ret = qc7xx_wifi_disconnect(dev);
+		if (ret != 0) {
+			return ret;
+		}
 	}
+
+	qc7xx_wifi_low_power_reconnecting = false;
+	qc7xx_wifi_autoconnect_pending = false;
+	(void)k_work_cancel_delayable(&qc7xx_wifi_reconnect_work);
+	(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
 
 	memset(&wifi_config, 0, sizeof(wifi_config));
 
@@ -1119,12 +1450,14 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 
 	data->state = QC7XX_STA_CONNECTING;
 	data->status.connected = false;
+	data->conn_requested = true;
 
 	if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
 		ret = wifi_mgmr_sta_autoconnect_enable();
 		if (ret != 0) {
 			data->state = QC7XX_STA_STARTED;
 			data->status.mfp = WIFI_MFP_DISABLE;
+			data->conn_requested = false;
 			return -EIO;
 		}
 	}
@@ -1133,8 +1466,12 @@ static int qc7xx_wifi_connect(const struct device *dev, struct wifi_connect_req_
 	if (ret != 0) {
 		data->state = QC7XX_STA_STARTED;
 		data->status.mfp = WIFI_MFP_DISABLE;
+		data->conn_requested = false;
 		return -EIO;
 	}
+
+	qc7xx_wifi_reconnect_config = wifi_config;
+	qc7xx_wifi_reconnect_config_valid = true;
 
 	return 0;
 }
@@ -1271,8 +1608,33 @@ static int qc7xx_wifi_set_power_save(const struct device *dev, struct wifi_ps_pa
 			return qc7xx_wifi_ps_fail(params, WIFI_PS_PARAM_FAIL_DEVICE_NOT_CONNECTED,
 						  -ENOTCONN);
 		}
+		if (qc7xx_wifi_low_power_reconnecting && params->enabled == WIFI_PS_ENABLED) {
+			return qc7xx_wifi_ps_fail(params, WIFI_PS_PARAM_FAIL_UNSPECIFIED,
+						  -EBUSY);
+		}
+		if (qc7xx_wifi_low_power_reconnecting && params->enabled == WIFI_PS_DISABLED) {
+			qc7xx_wifi_low_power_reconnecting = false;
+			(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
+		}
+
+		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) &&
+		    params->enabled == WIFI_PS_ENABLED) {
+			ret = wifi_mgmr_sta_autoconnect_disable();
+			if (ret != 0) {
+				return qc7xx_wifi_ps_fail(params, WIFI_PS_PARAM_FAIL_CMD_EXEC_FAIL,
+							  -EIO);
+			}
+		}
 
 		ret = qc7xx_wifi_apply_sta_ps(data, params->enabled);
+		if (ret == 0 && IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) &&
+		    params->enabled == WIFI_PS_DISABLED) {
+			ret = wifi_mgmr_sta_autoconnect_enable();
+		}
+		if (ret != 0 && IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) &&
+		    params->enabled == WIFI_PS_ENABLED) {
+			(void)wifi_mgmr_sta_autoconnect_enable();
+		}
 		if (ret == -EINVAL) {
 			return qc7xx_wifi_ps_fail(params, WIFI_PS_PARAM_FAIL_UNSPECIFIED,
 						  -EINVAL);
@@ -1481,6 +1843,12 @@ int qc7xx_wifi_dev_init(const struct device *dev)
 	int ret;
 
 	ARG_UNUSED(dev);
+	k_work_init_delayable(&qc7xx_wifi_reconnect_work, qc7xx_wifi_reconnect_work_handler);
+	k_work_init_delayable(&qc7xx_wifi_restore_ps_work, qc7xx_wifi_restore_ps_work_handler);
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	k_work_init_delayable(&qc7xx_wifi_ap_follow_sta_work,
+			      qc7xx_wifi_ap_follow_sta_work_handler);
+#endif
 
 	net_al_tx_buf_init();
 
@@ -1676,7 +2044,7 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 							WIFI_FREQ_BAND_2_4_GHZ;
 		phy_mode = wifi_mgmr_get_mode(0U);
 		status->link_mode = qc7xx_wifi_link_mode_from_phy(phy_mode);
-#if defined(CONFIG_QCC74X_PM_PDS15)
+#if defined(CONFIG_QCC74X_PM_LPFW)
 		status->dtim_period = qc7xx_lp_beacon_dtim_period_get();
 		status->beacon_interval = qc7xx_lp_beacon_interval_get();
 #else
@@ -1697,12 +2065,11 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 	} else if (data == &qc7xx_ap_sta_data) {
 		int phy_mode;
 		wifi_mgmr_ap_info_t ap = { 0 };
+		uint8_t channel;
 
 		status->iface_mode = WIFI_MODE_AP;
 		memcpy(status->bssid, data->mac_addr, WIFI_MAC_ADDR_LEN);
 		status->channel = data->status.channel;
-		status->band = status->channel > 14U ? WIFI_FREQ_BAND_5_GHZ :
-							WIFI_FREQ_BAND_2_4_GHZ;
 
 		phy_mode = wifi_mgmr_get_mode(1U);
 		status->link_mode = qc7xx_wifi_link_mode_from_phy(phy_mode);
@@ -1713,7 +2080,21 @@ static int qc7xx_wifi_status(const struct device *dev, struct wifi_iface_status 
 
 		if (wifi_mgmr_get_ap_info(&ap) == 0) {
 			status->security = qc7xx_wifi_security_to_zephyr(ap.ucSecurity);
+			if (ap.ucChannel != 0U) {
+				status->channel = ap.ucChannel;
+			}
 		}
+
+		/* Prefer the operating channel, which differs from the one above
+		 * once the AP has followed the STA through a channel switch.
+		 */
+		channel = qc7xx_wifi_ap_operating_channel();
+		if (channel != 0U) {
+			status->channel = channel;
+		}
+
+		status->band = status->channel > 14U ? WIFI_FREQ_BAND_5_GHZ :
+							WIFI_FREQ_BAND_2_4_GHZ;
 #endif
 	} else {
 		status->iface_mode = WIFI_MODE_UNKNOWN;
@@ -2168,15 +2549,44 @@ static int qc7xx_wifi_ap_config_params(const struct device *dev,
 
 static void qc7xx_wifi_handle_sta_connect_event(void *event_data)
 {
+	int ret;
+
 	ARG_UNUSED(event_data);
 
 	qc7xx_data.state = QC7XX_STA_CONNECTED;
 	qc7xx_data.status.connected = true;
+	(void)k_work_cancel_delayable(&qc7xx_wifi_reconnect_work);
+
+	/* In AP+STA mode the AP interface is registered first.  Make the
+	 * connected STA interface the default so socket traffic is routed to
+	 * the uplink interface rather than the inactive AP interface. */
+	net_if_set_default(qc7xx_wifi_iface);
+
+#if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE)
+	/* An AP started before the STA associated is left on its own channel. */
+	(void)k_work_reschedule(&qc7xx_wifi_ap_follow_sta_work,
+				K_MSEC(QC7XX_WIFI_AP_FOLLOW_STA_DELAY_MS));
+#endif
 
 #if defined(CONFIG_QC7XX_WIFI_STA_AUTO_DHCPV4)
-	net_dhcpv4_start(qc7xx_wifi_iface);
+	if (qc7xx_wifi_low_power_reconnecting) {
+		ret = qc7xx_wifi_apply_sta_ps(&qc7xx_data, WIFI_PS_DISABLED);
+		if (ret != 0) {
+			LOG_WRN("Failed to disable Wi-Fi power save before DHCP: %d", ret);
+		}
+		net_dhcpv4_restart(qc7xx_wifi_iface);
+	} else {
+		net_dhcpv4_start(qc7xx_wifi_iface);
+	}
 #else
 	wifi_mgmt_raise_connect_result_event(qc7xx_wifi_iface, 0);
+	if (qc7xx_wifi_low_power_reconnecting) {
+		ret = qc7xx_wifi_apply_sta_ps(&qc7xx_data, WIFI_PS_ENABLED);
+		if (ret != 0) {
+			LOG_ERR("Failed to restore Wi-Fi power save after reconnect: %d", ret);
+		}
+		qc7xx_wifi_low_power_reconnecting = false;
+	}
 #endif
 }
 
@@ -2184,6 +2594,13 @@ static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 {
 	uint8_t reason = (uint32_t)event_data;
 	bool disconnecting = qc7xx_data.state == QC7XX_STA_DISCONNECTING;
+	bool reconnect_from_ps = qc7xx_data.ps.enabled == WIFI_PS_ENABLED;
+
+	(void)k_work_cancel_delayable(&qc7xx_wifi_restore_ps_work);
+
+#if defined(CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE) && CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH > 1
+	qc7xx_wifi_tx_batch_purge((net_al_if_t)qc7xx_wifi_iface);
+#endif
 
 	qc7xx_data.status.connected = false;
 	qc7xx_data.status.mfp = WIFI_MFP_DISABLE;
@@ -2216,11 +2633,37 @@ static void qc7xx_wifi_handle_sta_disconnect_event(void *event_data)
 	}
 
 	if (disconnecting) {
+		qc7xx_data.conn_requested = false;
 		qc7xx_data.state = QC7XX_STA_STARTED;
-	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U) {
+	} else if ((reconnect_from_ps || qc7xx_wifi_low_power_reconnecting) &&
+		   reason != 8U && qc7xx_wifi_reconnect_config_valid) {
+		/*
+		 * Run the next connect after the disconnect event has completed so
+		 * the previous connection's cleanup finishes first.
+		 */
+		qc7xx_wifi_low_power_reconnecting = true;
+		qc7xx_data.state = QC7XX_STA_STARTED;
+		(void)k_work_reschedule(&qc7xx_wifi_reconnect_work,
+					K_MSEC(QC7XX_WIFI_RECONNECT_DELAY_MS));
+	} else if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT) && reason != 8U &&
+		   qc7xx_data.conn_requested) {
 		qc7xx_data.state = QC7XX_STA_CONNECTING;
+		/* Mark CONNECTING as owned by the auto-reconnect loop, so a
+		 * later connect request can take it over instead of being
+		 * rejected with -EALREADY.
+		 */
+		qc7xx_wifi_autoconnect_pending = true;
 		wifi_mgmr_sta_autoconnect_enable();
 	} else {
+		qc7xx_wifi_low_power_reconnecting = false;
+		qc7xx_wifi_autoconnect_pending = false;
+		/* Nothing requested: staying at CONNECTING would reject every
+		 * later connect request with -EALREADY.
+		 */
+		qc7xx_data.conn_requested = false;
+		if (IS_ENABLED(CONFIG_SOC_WIFI_STA_RECONNECT)) {
+			wifi_mgmr_sta_autoconnect_disable();
+		}
 		qc7xx_data.state = QC7XX_STA_STARTED;
 	}
 }
@@ -2338,6 +2781,9 @@ void qc7xx_wifi_event_handler(uint32_t code, uint32_t code1)
 	case CODE_WIFI_ON_AP_STOPPED:
 		LOG_DBG("AP stopped");
 		ap_data->state = QC7XX_AP_STOPPED;
+#if defined(CONFIG_QCC74X_WIFI_HIGH_PERFORMANCE) && CONFIG_QCC74X_WIFI_TX_BATCH_DEPTH > 1
+		qc7xx_wifi_tx_batch_purge((net_al_if_t)iface_ap);
+#endif
 		ap_data->status.connected = false;
 #if defined(CONFIG_QC7XX_WIFI_AP_STA_MODE) && defined(CONFIG_NET_DHCPV4_SERVER)
 		qc7xx_wifi_ap_ipv4_unconfig(iface_ap);

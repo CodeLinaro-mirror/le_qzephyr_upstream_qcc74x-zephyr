@@ -11,7 +11,7 @@ set print pretty on
 set pagination off
 set output-radix 16
 
-# RISC-V (QCC74x) specifics, mirrored from qcc748m_evk/board.cmake --gdb-init entries
+# RISC-V (QCC74x) specifics, mirrored from qcc748m3_evk/board.cmake --gdb-init entries
 set mem inaccessible-by-default off
 set architecture riscv:rv32
 set remotetimeout 250

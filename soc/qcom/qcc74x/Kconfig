@@ -120,6 +120,18 @@ config APP_ANTI_ROLLBACK_VER
 	  monotonically increasing value in the range 1 through 128 for a
 	  production image that will be committed.
 
+config QCC74X_NET_PKT_PSRAM
+	bool "Place Zephyr fixed network packet pools in PSRAM"
+	depends on NETWORKING && WIFI_QCC74X && PSRAM && NET_BUF_FIXED_DATA_SIZE
+	depends on QCC74X_PM_PDS1 || PSRAM_COPY_CODE
+	default n
+	help
+	  Place the RX/TX packet slabs, buffer descriptors and fixed payload
+	  arrays from net_pkt.c in PSRAM instead of internal SRAM. PDS1 retains
+	  these data pools; code and stacks remain in internal memory. This
+	  does not enable the Wi-Fi high-performance profile or PSRAM code copy.
+	  The PSRAM controller must be initialized before kernel slab setup.
+
 config QCC74X_WIFI_PERF_MODE
 	bool "WiFi high-performance mode (disables ECLIC interrupt-level context save)"
 	default n
@@ -143,33 +155,78 @@ config LPAPP
 	  Internal SDK compatibility switch used by the QCC74X linker script
 	  and HAL low-power code for LPFW/PDS15 layout.
 
+choice QCC74X_PM_LPFW_MODE
+	prompt "QCC74X LPFW deep-sleep mode"
+	optional
+	depends on QCC74X_PM_LPFW_CAPABLE
+	help
+	  Select one compile-time deep-sleep mode, or leave both disabled.
+	  Pair the selection with CPU power states and memory configuration
+	  in devicetree. PDS15 firmware must not use PSRAM.
+	  Leave this choice disabled for ordinary firmware. Enabling PM or
+	  selecting a board does not automatically enable LPFW deep sleep.
+
 config QCC74X_PM_PDS15
 	bool "Enable QCC74X PDS15 suspend-to-ram path"
-	depends on PM && !PSRAM && !RISCV_MACHINE_TIMER
-	select LPAPP
-	default n
+	depends on !PSRAM
+	select QCC74X_PM_LPFW
 	help
-	  Enable the QCC74X adapter that maps PM_STATE_SUSPEND_TO_RAM to
-	  the vendor LPFW + PDS15 flow with RTC one-shot wakeup.
+	  Use suspend-to-ram substate 15 without PSRAM retention.
 
-	  The current low-power path does not support PSRAM-enabled images.
-	  It also uses a QCC74X-local system timer so the generic RISC-V
-	  machine timer driver remains unmodified.
+config QCC74X_PM_PDS1
+	bool "Enable QCC74X PDS1 PSRAM retention"
+	depends on PSRAM
+	depends on PSRAM_LENGTH = 0x400000 || PSRAM_LENGTH = 0x800000 || PSRAM_LENGTH = 0x1000000
+	select QCC74X_PM_LPFW
+	help
+	  Use suspend-to-ram substate 1 with 4, 8 or 16 MiB Winbond x8 PSRAM data and
+	  heap retention, including configurations that execute copied code from PSRAM. Stacks
+	  must remain in internal memory. This does not select a Wi-Fi performance
+	  profile or change the PSRAM code-copy selection.
+	  The devicetree CPU power states must include substate 1. UART is
+	  unavailable while asleep; arrange a wake source before entry.
+
+endchoice
+
+config QCC74X_PM_LPFW_CAPABLE
+	bool
+	default y
+	depends on PM && !RISCV_MACHINE_TIMER
+	depends on PM_DEVICE && PM_DEVICE_SYSTEM_MANAGED
+	depends on PM_POLICY_CUSTOM && UART_QCC74X
+	depends on !SMP && !PMP_STACK_GUARD && !ZERO_LATENCY_IRQS
+	depends on !LOG_MODE_IMMEDIATE && !LOG_MODE_MINIMAL
+	depends on !SHELL_BACKEND_SERIAL_CHECK_DTR
+	depends on !SHELL_BACKEND_SERIAL_API_ASYNC
+
+config QCC74X_PM_LPFW
+	bool
+	select LPAPP
+	help
+	  Shared LPFW backend for the mutually exclusive PDS1 and PDS15
+	  modes, including the QCC74X-local system timer and PM policy.
+
+	  UARTs are suspended and resumed only by System-Managed Device PM.
+	  Keep UART output out of the system suspend/resume interval. Runtime
+	  PM enabled UARTs and active async transfers reject deep sleep. UART RX is
+	  not a wake source; input during sleep may be lost. System PM traverses
+	  all devices, so audit any other enabled device PM callbacks.
 
 config QCC74X_PM_PDS15_SYSTEM_TIMER
-	bool "Use QCC74X PDS15-aware system timer"
-	depends on QCC74X_PM_PDS15 && !RISCV_MACHINE_TIMER
+	bool "Use QCC74X LPFW-aware system timer"
+	depends on QCC74X_PM_LPFW && !RISCV_MACHINE_TIMER
 	default y
 	select TICKLESS_CAPABLE
 	select TIMER_HAS_64BIT_CYCLE_COUNTER
 	help
 	  Use a QCC74X-local RISC-V machine timer implementation that can
-	  rebase Zephyr kernel ticks after PDS15 without patching the generic
+	  rebase Zephyr kernel ticks after PDS1/PDS15 without patching the generic
 	  RISC-V timer driver.
 
 config QCC74X_PM_PDS15_DEBUG_LOG
 	bool "Enable verbose QCC74X PDS15 bring-up logs"
 	depends on QCC74X_PM_PDS15 && QCC74X_PM_DIAGNOSTICS
+	depends on !PM_DEVICE_SYSTEM_MANAGED
 	default n
 	help
 	  Enable detailed PDS15/LPFW/Wi-Fi resume logging diagnostics used
@@ -181,23 +238,23 @@ module-str = QCC74X PDS15 PM
 source "subsys/logging/Kconfig.template.log_config"
 
 config QCC74X_PM_PDS15_AUTO_INIT
-	bool "Automatically initialize QCC74X PDS15 LPFW at boot"
-	depends on QCC74X_PM_PDS15
+	bool "Automatically initialize QCC74X LPFW at boot"
+	depends on QCC74X_PM_LPFW
 	default y
 	help
-	  Initialize the vendor LPFW/PDS15 handoff during Zephyr application
+	  Initialize the vendor LPFW handoff during Zephyr application
 	  init so the automatic low-power policy can be enabled without a
 	  separate LPFW shell initialization step.
 
 config QCC74X_PM_PDS15_POLICY
-	bool "Use the QCC74X automatic PDS15 PM policy"
-	depends on QCC74X_PM_PDS15 && PM_POLICY_CUSTOM
+	bool
+	depends on QCC74X_PM_LPFW && PM_POLICY_CUSTOM
 	default y
 	help
 	  Use a QCC74X-specific Zephyr PM policy that preserves the default
 	  residency, device-busy, and policy-lock behavior, but only selects
-	  PDS15 when the QCC74X automatic low-power gate and diagnostics say
-	  that suspend-to-ram substate 15 is currently allowed.
+	  the selected PDS1 or PDS15 state when the QCC74X automatic low-power
+	  gate permits suspend-to-ram substate 1 or 15, respectively.
 
 config QCC74X_PM_PDS15_BLE
 	bool "Enable QCC74X PDS15 BLE controller low power"

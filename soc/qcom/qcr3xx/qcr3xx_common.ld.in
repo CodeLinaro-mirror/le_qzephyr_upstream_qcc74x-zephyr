@@ -1,0 +1,796 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/**
+ * @file
+ * @brief Linker command/script file
+ *
+ * Zephyr-oriented common linker script for QCR373.
+ */
+
+#include <zephyr/devicetree.h>
+
+#include <zephyr/linker/sections.h>
+#include <zephyr/linker/devicetree_regions.h>
+
+#include <zephyr/linker/linker-defs.h>
+#include <zephyr/linker/linker-tool.h>
+
+#ifdef CONFIG_SOC_QCR3XX_NP
+#define NONECACHE_RAM_BASE \
+	DT_REG_ADDR_BY_NAME(DT_CHOSEN(zephyr_sram), noncacheable) + \
+	CONFIG_QCR373_OCRAM_SIZE_AP
+#define CACHE_RAM_BASE \
+	DT_REG_ADDR_BY_NAME(DT_CHOSEN(zephyr_sram), cacheable) + \
+	CONFIG_QCR373_OCRAM_SIZE_AP
+#define QCR373_LINK_NP_MAIN_RAM_SIZE \
+	(DT_REG_SIZE_BY_NAME(DT_CHOSEN(zephyr_sram), cacheable) - \
+	 CONFIG_QCR373_OCRAM_SIZE_AP)
+#define NONECACHE_RAM_SIZE QCR373_LINK_NP_MAIN_RAM_SIZE
+#define CACHE_RAM_SIZE QCR373_LINK_NP_MAIN_RAM_SIZE
+#define WIFI_RAM_BASE \
+	(DT_REG_ADDR(DT_NODELABEL(wifiram)) + CONFIG_QCR373_WRAM_SIZE_AP)
+#define WIFI_RAM_SIZE \
+	(DT_REG_SIZE(DT_NODELABEL(wifiram)) - CONFIG_QCR373_WRAM_SIZE_AP)
+#else
+#define NONECACHE_RAM_BASE \
+	DT_REG_ADDR_BY_NAME(DT_CHOSEN(zephyr_sram), noncacheable)
+#define NONECACHE_RAM_SIZE CONFIG_QCR373_OCRAM_SIZE_AP
+#define CACHE_RAM_BASE \
+	DT_REG_ADDR_BY_NAME(DT_CHOSEN(zephyr_sram), cacheable)
+#define CACHE_RAM_SIZE CONFIG_QCR373_OCRAM_SIZE_AP
+#define WIFI_RAM_BASE DT_REG_ADDR(DT_NODELABEL(wifiram))
+#define WIFI_RAM_SIZE CONFIG_QCR373_WRAM_SIZE_AP
+#endif
+
+#ifdef CONFIG_PSRAM
+#ifdef CONFIG_SOC_QCR3XX_NP
+#define PSRAM_BASE \
+	(DT_REG_ADDR(DT_NODELABEL(psram)) + CONFIG_QCR373_PSRAM_DATA_SIZE_AP)
+#define PSRAM_SIZE \
+	(DT_REG_SIZE(DT_NODELABEL(psram)) - CONFIG_QCR373_PSRAM_DATA_SIZE_AP)
+#else
+#define PSRAM_BASE DT_REG_ADDR(DT_NODELABEL(psram))
+#define PSRAM_SIZE CONFIG_QCR373_PSRAM_DATA_SIZE_AP
+#endif
+#endif
+
+#ifdef CONFIG_XIP
+#define ROMABLE_REGION                   ROM
+#else
+#define ROMABLE_REGION                   RAM
+#endif
+#define RAMABLE_REGION                   RAM
+#define NONECACHE_RAM_REGION             NONECACHE_RAM
+#define WIFI_RAM_REGION                  WIFI_RAM
+
+#define _EXCEPTION_SECTION_NAME         exceptions
+#define _RESET_SECTION_NAME             reset
+
+/* user configurable */
+#define ROM_BASE                        CONFIG_FLASH_BASE_ADDRESS
+#ifdef CONFIG_SOC_QCR3XX_NP
+#define ROM_SIZE                        CONFIG_QCR373_CODE_SIZE_NP
+#else
+#define ROM_SIZE                        CONFIG_QCR373_CODE_SIZE_AP
+#endif
+/* come from arch/Kconfig */
+#define RAM_BASE                        CONFIG_SRAM_BASE_ADDRESS
+#define RAM_SIZE                        KB(CONFIG_SRAM_SIZE)
+
+#ifdef CONFIG_RISCV_PMP
+    #define MPU_MIN_SIZE CONFIG_PMP_GRANULARITY
+    #define MPU_MIN_SIZE_ALIGN . = ALIGN(MPU_MIN_SIZE);
+    #if defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+        #define MPU_ALIGN(region_size) \
+            . = ALIGN(MPU_MIN_SIZE); \
+            . = ALIGN( 1 << LOG2CEIL(region_size))
+    #else
+        #define MPU_ALIGN(region_size) \
+            . = ALIGN(MPU_MIN_SIZE)
+    #endif
+#else
+    #define MPU_MIN_SIZE_ALIGN
+    #define MPU_ALIGN(region_size) . = ALIGN(4)
+#endif
+
+#include <zephyr/linker/linker-devnull.h>
+
+#ifdef CONFIG_BUILD_WITH_TFM
+__RFTLV_SIZE_OFFSET = 2K;
+__VERSION_SIZE_OFFSET = 4K;
+#else
+__RFTLV_SIZE_OFFSET = 1K;
+__VERSION_SIZE_OFFSET = 0xc00;
+#endif
+__RFTLV_SIZE_HOLE = 2K;
+__RFTLV_HEAD1_H = (0x46524C42); /* BLRF */
+__RFTLV_HEAD1_L = (0x41524150); /* PAPA */
+__EM_SIZE = DEFINED(btble_controller_init) ? 32K : 0K;
+
+#ifdef CONFIG_LPAPP
+PROVIDE(__macsw_conf_bl_wifi_ps_enable = 1);
+PROVIDE(__macsw_conf_plat_dma_enable = 0);
+#else
+PROVIDE(__macsw_conf_bl_wifi_ps_enable = 0);
+PROVIDE(__macsw_conf_plat_dma_enable = 1);
+#endif
+
+MEMORY
+{
+#ifdef CONFIG_XIP
+    ROM (rx)  : ORIGIN = ROM_BASE, LENGTH = ROM_SIZE
+#endif
+    NONECACHE_RAM (rwx) : ORIGIN = NONECACHE_RAM_BASE, LENGTH = NONECACHE_RAM_SIZE
+    RAM (rwx) : ORIGIN = CACHE_RAM_BASE, LENGTH = CACHE_RAM_SIZE
+    WIFI_RAM (rwx) : ORIGIN = WIFI_RAM_BASE, LENGTH = WIFI_RAM_SIZE
+#ifdef CONFIG_PSRAM
+    PSRAM (rwx) : ORIGIN = PSRAM_BASE, LENGTH = PSRAM_SIZE
+#endif
+
+#if defined(CONFIG_LINKER_DEVNULL_MEMORY)
+    DEVNULL_ROM (rx) : ORIGIN = DEVNULL_ADDR, LENGTH = DEVNULL_SIZE
+#endif
+
+    LINKER_DT_REGIONS()
+
+    /* Used by and documented in include/linker/intlist.ld */
+    IDT_LIST  (wx)    : ORIGIN = 0xFFFFF7FF, LENGTH = 2K
+}
+
+ASSERT(CONFIG_QCR373_OCRAM_SIZE_AP <=
+	DT_REG_SIZE_BY_NAME(DT_CHOSEN(zephyr_sram), cacheable),
+	"AP OCRAM size exceeds the DTS OCRAM size")
+ASSERT(CONFIG_QCR373_WRAM_SIZE_AP <= DT_REG_SIZE(DT_NODELABEL(wifiram)),
+	"AP WRAM size exceeds the DTS WRAM size")
+#ifdef CONFIG_PSRAM
+ASSERT(CONFIG_QCR373_PSRAM_DATA_SIZE_AP <= DT_REG_SIZE(DT_NODELABEL(psram)),
+	"AP PSRAM size exceeds the DTS PSRAM size")
+#endif
+
+ENTRY(CONFIG_KERNEL_ENTRY)
+
+SECTIONS
+    {
+
+#include <zephyr/linker/rel-sections.ld>
+
+#ifdef CONFIG_LLEXT
+#include <zephyr/linker/llext-sections.ld>
+#endif
+
+    /*
+     * The .plt and .iplt are here according to
+     * 'riscv32-zephyr-elf-ld --verbose', before text section.
+     */
+    SECTION_PROLOGUE(.plt,,)
+    {
+        *(.plt)
+    }
+
+    SECTION_PROLOGUE(.iplt,,)
+    {
+        *(.iplt)
+    }
+
+    GROUP_START(ROMABLE_REGION)
+    __rom_region_start = ROM_BASE;
+
+    SECTION_PROLOGUE(rom_start,,)
+    {
+        . = ALIGN(16);
+        KEEP(*(.init*))
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_START ...).
+ */
+#include <snippets-rom-start.ld>
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_relocate.ld>
+#endif
+
+    SECTION_PROLOGUE(_RESET_SECTION_NAME,,)
+    {
+        KEEP(*(.reset.*))
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+    SECTION_PROLOGUE(_EXCEPTION_SECTION_NAME,,)
+    {
+         KEEP(*(".exception.entry.*"))
+         *(".exception.other.*")
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+#ifdef CONFIG_QCR373_MULTI_IMAGE
+    SECTION_PROLOGUE(qcr373_multi_image,,)
+    {
+        . = ORIGIN(ROM) + 0x300;
+        __qcr373_multi_images = ABSOLUTE(.);
+        LONG(0x464C4553) LONG(0x00000000) /* SELF */
+        LONG(0x00000000) LONG(0x00000000)
+        LONG(0x0000504E) LONG(0x00000000) /* NP */
+        LONG(0x00000000) LONG(0x00000000)
+        LONG(0xFFFFFFFF) LONG(0xFFFFFFFF)
+        LONG(0xFFFFFFFF) LONG(0xFFFFFFFF)
+    } GROUP_LINK_IN(ROMABLE_REGION)
+#endif
+
+    /* rftlv section */
+    SECTION_PROLOGUE(_RFTLV_SECTION_NAME,,)
+    {
+        . = ORIGIN(ROM) + __RFTLV_SIZE_OFFSET;
+        PROVIDE(_ld_symbol_rftlv_address = .);
+        LONG(__RFTLV_HEAD1_H);
+        LONG(__RFTLV_HEAD1_L);
+        . = ORIGIN(ROM) + __RFTLV_SIZE_OFFSET + __RFTLV_SIZE_HOLE;
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+    /* version section */
+    SECTION_PROLOGUE(_VERSION_SECTION_NAME,,)
+    {
+        . = ORIGIN(ROM) + __VERSION_SIZE_OFFSET;
+
+        LONG(0x42464c42);
+        LONG(0x46524556);
+        KEEP (*(.qcrverinf))
+        LONG(0x42464c42);
+        LONG(0x46524556);
+        KEEP (*(.verinfo))
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+#ifdef CONFIG_EXECUTE_CODE_FROM_PSRAM
+    /* These functions run before the PSRAM image has been copied. */
+    SECTION_PROLOGUE(init_code,,)
+    {
+        *system_qcr373*.o*(.text*)
+        *system_qcr373*.o*(.rodata*)
+        *system_qcr373*.o*(.srodata*)
+
+        *start_load*.o*(.text*)
+        *start_load*.o*(.rodata*)
+        *start_load*.o*(.srodata*)
+
+        *(.text.arch_bss_zero)
+        *(.text.arch_early_memset)
+        *(.text.memset)
+
+        *(.text.arch_data_copy)
+        *(.text.arch_early_memcpy)
+        *(.text.memcpy)
+    } GROUP_LINK_IN(ROMABLE_REGION)
+#endif
+
+#ifdef CONFIG_PSRAM
+    SECTION_PROLOGUE(_PSRAM_DATA_NAME,,ALIGN(32))
+    {
+        . = ALIGN(32);
+        __psram_data_load_addr = LOADADDR(_PSRAM_DATA_NAME);
+        __psram_data_start__ = .;
+
+#ifdef CONFIG_EXECUTE_CODE_FROM_PSRAM
+        __text_region_start = .;
+        *(.text*)
+        *(.gnu.linkonce.t.*)
+#include <zephyr/linker/kobject-text.ld>
+        __text_region_end = .;
+
+        *(.rodata*)
+        . = ALIGN(32);
+#endif
+
+        KEEP(*(.psram_code*))
+
+        . = ALIGN(32);
+
+        KEEP(*(.psram_data*))
+
+        __psram_data_end__ = .;
+        . = ALIGN(32);
+    } GROUP_DATA_LINK_IN(PSRAM, ROMABLE_REGION)
+#endif
+
+    SECTION_PROLOGUE(_TEXT_SECTION_NAME,,)
+    {
+        . = ALIGN(4);
+        KEEP(*(.openocd_debug))
+        KEEP(*(".openocd_debug.*"))
+
+#ifndef CONFIG_EXECUTE_CODE_FROM_PSRAM
+        __text_region_start = .;
+#endif
+
+        *(.text)
+        *(".text.*")
+        *(.gnu.linkonce.t.*)
+#ifndef CONFIG_EXECUTE_CODE_FROM_PSRAM
+#include <zephyr/linker/kobject-text.ld>
+#endif
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+#ifndef CONFIG_EXECUTE_CODE_FROM_PSRAM
+    __text_region_end = .;
+#endif
+
+    __rodata_region_start = .;
+#include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
+#include <zephyr/linker/thread-local-storage.ld>
+
+    SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
+    {
+        /* section information for components's version */
+        . = ALIGN(4);
+        _version_info_section_start = .;
+        KEEP(*(.version.*))
+        _version_info_section_end = .;
+
+         . = ALIGN(4);
+        *(EXCLUDE_FILE( *qcr373_glb*.o* \
+                        *qcr373_pds*.o* \
+                        *qcr373_common*.o* \
+                        *qcr373_flash*.o* \
+                        *qcr373_sf_cfg*.o* \
+                        *qcr373_sf_ctrl*.o* \
+                        *qcr373_sflash*.o* \
+                        *qcr373_xip_sflash*.o* \
+                        *qcr373_ef_ctrl*.o* \
+                        *qcr373_ef_cfg*.o* \
+                        *qcr373_clock*.o* \
+                        *_clz*.o* \
+                        *qcr373_romapi_patch*.o* ).rodata*)
+
+         *(.srodata)
+         *(".srodata.*")
+         *(.gnu.linkonce.r.*)
+         *(.sdata2 .sdata2.* .gnu.linkonce.s2.*)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rodata.ld>
+#include <zephyr/linker/kobject-rom.ld>
+    . = ALIGN(4);
+    } GROUP_LINK_IN(ROMABLE_REGION)
+
+#include <zephyr/linker/cplusplus-rom.ld>
+    __rodata_region_end = .;
+
+    /* For non-XIP system, __rom_region_end symbol should be set to
+     * the end of common ROMABLE_REGIONs (text and rodata) instead of
+     * the linker script end, so it wouldn't mistakenly contain
+     * RAMABLE_REGION in it.
+     */
+#ifndef CONFIG_XIP
+#ifdef CONFIG_RISCV_PMP
+    SECTION_PROLOGUE(rom_mpu_padding,,)
+    {
+        MPU_ALIGN(__rodata_region_end - __rom_region_start);
+#ifdef CONFIG_QEMU_TARGET
+        /*
+         * QEMU doesn't vet each instruction fetch individually.
+         * Instead, it grabs a whole page and perform dynamic
+         * translation on it in a batch. It therefore validates
+         * PMP permissions using page-sized and -aligned chunks.
+         */
+        . = ALIGN(0x1000);
+#endif
+    } GROUP_LINK_IN(ROMABLE_REGION)
+#endif /* CONFIG_RISCV_PMP */
+
+    __rom_region_end = .;
+    __rom_region_size = __rom_region_end - __rom_region_start;
+#endif /* CONFIG_XIP */
+    GROUP_END(ROMABLE_REGION)
+
+    /* for none cachable RAM */
+    GROUP_START(NONECACHE_RAM_REGION)
+    SECTION_PROLOGUE(_NONECACHE_NOINIT_NAME,(NOLOAD),)
+    {
+
+         . = ALIGN(4);
+        *(.nocache_noinit_ram*)
+
+        . = ALIGN(4);
+
+        __nocache_ram_noinit_end__ = .;
+
+    } GROUP_LINK_IN(NONECACHE_RAM_REGION)
+    SECTION_PROLOGUE(_NONECACHE_DATA_NAME,,)
+    {
+        __nocache_ram_data_load_addr = LOADADDR(_NONECACHE_DATA_NAME);
+
+        . = ALIGN(4);
+        __nocache_ram_data_start__ = .;
+
+        *(.nocache_ram*)
+
+        . = ALIGN(4);
+        __nocache_ram_data_end__ = .;
+
+    } GROUP_LINK_IN(NONECACHE_RAM_REGION AT> ROMABLE_REGION)
+    GROUP_END(NONECACHE_RAM_REGION)
+
+    GROUP_START(RAMABLE_REGION)
+
+    SECTION_DATA_PROLOGUE(_CACHE_SKIP_SECTION_NAME,(NOLOAD),)
+    {
+        . += (__nocache_ram_data_end__ - ORIGIN(NONECACHE_RAM_REGION));
+        . = ALIGN(32);
+    }  GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
+
+    _image_ram_start = .;
+
+    SECTION_PROLOGUE(tcm_text,,ALIGN(4))
+    {
+        . = ALIGN(4);
+        __tcm_start = .;
+        __tcm_text_start = .;
+
+        *(.tcm_code*)
+        *(.sclock_rlt_code*)
+        *_udivdi3*.o*(.text*)
+
+        . = ALIGN(4);
+        __tcm_text_end = .;
+    }  GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+
+    SECTION_PROLOGUE(tcm_rodata,,ALIGN(4))
+    {
+        . = ALIGN(4);
+        __tcm_rodata_start = .;
+
+        *(.tcm_const*)
+        *(.sclock_rlt_const*)
+
+        *qcr373_glb*.o*(.rodata*)
+        *qcr373_pds*.o*(.rodata*)
+        *qcr373_common*.o*(.rodata*)
+        *qcr373_flash*.o*(.rodata*)
+        *qcr373_sf_cfg*.o*(.rodata*)
+        *qcr373_sf_ctrl*.o*(.rodata*)
+        *qcr373_sflash*.o*(.rodata*)
+        *qcr373_xip_sflash*.o*(.rodata*)
+        *qcr373_ef_ctrl*.o*(.rodata*)
+        *qcr373_ef_cfg*.o*(.rodata*)
+        *qcr373_clock*.o*(.rodata*)
+        *_clz*.o*(.rodata*)
+        *qcr373_romapi_patch*.o*(.rodata*)
+
+        . = ALIGN(4);
+        __tcm_rodata_end = .;
+    }  GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+
+    SECTION_PROLOGUE(tcm_data,,ALIGN(4))
+    {
+        . = ALIGN(4);
+        __tcm_data_start = .;
+        *(.tcm_data*)
+        . = ALIGN(4);
+        __tcm_data_end = .;
+        __tcm_end = .;
+    } GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+
+    __tcm_text_size = __tcm_text_end - __tcm_text_start;
+    __tcm_rodata_size = __tcm_rodata_end - __tcm_rodata_start;
+    __tcm_data_size = __tcm_data_end - __tcm_data_start;
+    __tcm_size = __tcm_end - __tcm_start;
+    __tcm_load_start = LOADADDR(tcm_text);
+    __tcm_text_load_start = LOADADDR(tcm_text);
+    __tcm_rodata_load_start = LOADADDR(tcm_rodata);
+    __tcm_data_load_start = LOADADDR(tcm_data);
+
+#ifdef CONFIG_BT_QCR373
+    SECTION_PROLOGUE(qcr373_ble_data_lma_align,,)
+    {
+        . = ALIGN(8);
+    } GROUP_LINK_IN(ROMABLE_REGION)
+#endif
+
+    /* One naturally aligned NAPOT entry grants U mode access to linked TCM. */
+    __tcm_pmp_size = 1 << LOG2CEIL(MAX(__tcm_size, CONFIG_PMP_GRANULARITY));
+    __tcm_pmp_order = LOG2CEIL(__tcm_pmp_size);
+    ASSERT((__tcm_start & (__tcm_pmp_size - 1)) == 0,
+           "TCM start is not naturally aligned for its PMP region")
+    ASSERT((__tcm_start + __tcm_pmp_size) <= (ORIGIN(RAM) + LENGTH(RAM)),
+           "TCM PMP region exceeds this core's OCRAM")
+
+    SECTION_PROLOGUE(tcm_pmp_padding,(NOLOAD),)
+    {
+        . = __tcm_start + __tcm_pmp_size;
+        __tcm_pmp_end = .;
+    } GROUP_NOLOAD_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-ram-sections.ld>
+
+#if defined(CONFIG_USERSPACE)
+#define APP_SHARED_ALIGN MPU_MIN_SIZE_ALIGN
+#define SMEM_PARTITION_ALIGN MPU_ALIGN
+
+#include <app_smem.ld>
+
+    _app_smem_size = _app_smem_end - _app_smem_start;
+    _app_smem_rom_start = LOADADDR(_APP_SMEM_SECTION_NAME);
+#endif /* CONFIG_USERSPACE */
+
+    SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)
+    {
+        MPU_MIN_SIZE_ALIGN
+        /*
+         * For performance, BSS section is assumed to be 4 byte aligned and
+         * a multiple of 4 bytes
+         */
+         . = ALIGN(4);
+         __bss_start = .;
+        __kernel_ram_start = .;
+         *(.sbss)
+         *(".sbss.*")
+         *(.bss)
+         *(".bss.*")
+         COMMON_SYMBOLS
+
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_sram_bss_relocate.ld>
+#endif
+
+         /*
+          * As memory is cleared in words only, it is simpler to ensure the BSS
+          * section ends on a 4 byte boundary. This wastes a maximum of 3 bytes.
+          */
+          __bss_end = ALIGN(4);
+    }  GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
+
+#include <zephyr/linker/common-noinit.ld>
+
+    SECTION_DATA_PROLOGUE(_DATA_SECTION_NAME,,)
+    {
+         . = ALIGN(4);
+         __data_region_start = .;
+         __data_start = .;
+
+         *(.data)
+         *(".data.*")
+
+#ifdef CONFIG_RISCV_GP
+         . = ALIGN(8);
+         PROVIDE (__global_pointer$ = . + 0x800);
+#endif
+
+         *(.sdata .sdata.* .gnu.linkonce.s.*)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rwdata.ld>
+
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_sram_data_relocate.ld>
+#endif
+
+         __data_end = .;
+
+    }  GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+    __data_size = __data_end - __data_start;
+    __data_load_start = LOADADDR(_DATA_SECTION_NAME);
+
+    __data_region_load_start = LOADADDR(_DATA_SECTION_NAME);
+
+#include <zephyr/linker/common-ram.ld>
+#include <zephyr/linker/kobject-data.ld>
+#include <zephyr/linker/cplusplus-ram.ld>
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-data-sections.ld>
+
+    __data_region_end = .;
+
+    __kernel_ram_end = .;
+    __kernel_ram_size = __kernel_ram_end - __kernel_ram_start;
+
+#ifdef CONFIG_PSRAM
+    /* for PSRAM data */
+    SECTION_PROLOGUE(_PSRAM_NOINIT_NAME,(NOLOAD),)
+    {
+        . = ALIGN(32);
+        __psram_noinit_data_start__ = .;
+
+        KEEP(*(.psram_noinit*))
+        KEEP(*(.img_buf*))
+
+        . = ALIGN(32);
+        __psram_noinit_data_end__ = .;
+
+    } GROUP_LINK_IN(PSRAM)
+    SECTION_PROLOGUE(_PSRAM_HEAP_NAME,(NOLOAD),)
+    {
+        . = ALIGN(32);
+         __psram_heap_base = .;
+
+        KEEP(*(.psram_heap*))
+
+        . = ALIGN(32);
+        __psram_heap_end = .;
+
+    } GROUP_LINK_IN(PSRAM)
+    PROVIDE(__psram_limit = ABSOLUTE(ORIGIN(PSRAM) + LENGTH(PSRAM)));
+#endif
+
+#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_itcm), okay)
+GROUP_START(ITCM)
+
+    SECTION_PROLOGUE(_ITCM_SECTION_NAME,,SUBALIGN(8))
+    {
+        __itcm_start = .;
+        *(.itcm)
+        *(".itcm.*")
+        *(.tcm_code*)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function. */
+#include <snippets-itcm-section.ld>
+
+        __itcm_end = .;
+    } GROUP_LINK_IN(ITCM AT> ROMABLE_REGION)
+
+    __itcm_size = __itcm_end - __itcm_start;
+    __itcm_load_start = LOADADDR(_ITCM_SECTION_NAME);
+
+GROUP_END(ITCM)
+#endif
+
+#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+GROUP_START(DTCM)
+
+    SECTION_PROLOGUE(_DTCM_BSS_SECTION_NAME, (NOLOAD),SUBALIGN(8))
+    {
+        __dtcm_start = .;
+        __dtcm_bss_start = .;
+        *(.dtcm_bss)
+        *(".dtcm_bss.*")
+        __dtcm_bss_end = .;
+    } GROUP_LINK_IN(DTCM)
+
+    SECTION_PROLOGUE(_DTCM_NOINIT_SECTION_NAME, (NOLOAD),SUBALIGN(8))
+    {
+        __dtcm_noinit_start = .;
+        *(.dtcm_noinit)
+        *(".dtcm_noinit.*")
+        __dtcm_noinit_end = .;
+    } GROUP_LINK_IN(DTCM)
+
+    SECTION_PROLOGUE(_DTCM_DATA_SECTION_NAME,,SUBALIGN(8))
+    {
+        __dtcm_data_start = .;
+        *(.dtcm_data)
+        *(".dtcm_data.*")
+        *(.tcm_data*)
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function. */
+#include <snippets-dtcm-section.ld>
+
+        __dtcm_data_end = .;
+    } GROUP_LINK_IN(DTCM AT> ROMABLE_REGION)
+
+    __dtcm_end = .;
+
+    __dtcm_data_load_start = LOADADDR(_DTCM_DATA_SECTION_NAME);
+
+GROUP_END(DTCM)
+#endif
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-sections.ld>
+
+#define LAST_RAM_ALIGN MPU_MIN_SIZE_ALIGN
+
+#include <zephyr/linker/ram-end.ld>
+
+    PROVIDE(__HeapBase = ABSOLUTE(ALIGN(_image_ram_end, 64)));
+    PROVIDE(__HeapLimit = ABSOLUTE(ORIGIN(RAM) + LENGTH(RAM)));
+
+    GROUP_END(RAMABLE_REGION)
+
+    /* for wifi RAM */
+    GROUP_START(WIFI_RAM_REGION)
+    SECTION_PROLOGUE(_WIFIRAM_NOINIT_NAME,(NOLOAD),)
+    {
+        __nocache_wifiram_bss_start__ = .;
+
+        *(SHAREDRAMIPC)
+        *(SHAREDRAM)
+        _eshram = .;
+        *ipc_shared.o(COMMON)
+        *sdu_shared.o(COMMON)
+        *hal_desc.o(COMMON)
+        *txl_buffer_shared.o(COMMON)
+        *txl_frame_shared.o(COMMON)
+        *scan_shared.o(COMMON)
+        *scanu_shared.o(COMMON)
+        *mfp_bip.o(COMMON)
+        *me_mic.o(COMMON)
+        *(.wifi_ram*)
+        . = ALIGN(16);
+
+        __nocache_wifiram_bss_end__ = .;
+
+    } GROUP_LINK_IN(WIFI_RAM_REGION)
+    SECTION_PROLOGUE(_WIFIRAM_DATA_NAME,,)
+    {
+        __nocache_wifiram_data_load_addr = LOADADDR(_WIFIRAM_DATA_NAME);
+        __nocache_wifiram_data_start__ = .;
+
+        . = ALIGN(4);
+        __nocache_wifiram_data_end__ = .;
+
+    } GROUP_LINK_IN(WIFI_RAM_REGION AT> ROMABLE_REGION)
+
+    PROVIDE(_heap_wifi_start = ABSOLUTE(ALIGN(., 64)));
+    PROVIDE(_heap_wifi_size = ABSOLUTE(
+        ORIGIN(WIFI_RAM) + LENGTH(WIFI_RAM) - _heap_wifi_start));
+    GROUP_END(WIFI_RAM_REGION)
+
+#include <zephyr/linker/debug-sections.ld>
+
+    /DISCARD/ : { *(.note.GNU-stack) }
+
+    SECTION_PROLOGUE(.riscv.attributes, 0,)
+    {
+    KEEP(*(.riscv.attributes))
+    KEEP(*(.gnu.attributes))
+    }
+
+/* Output section descriptions are needed for these sections to suppress
+ * warnings when "--orphan-handling=warn" is set for lld.
+ */
+#if defined(CONFIG_LLVM_USE_LLD)
+    SECTION_PROLOGUE(.symtab, 0,) { *(.symtab) }
+    SECTION_PROLOGUE(.strtab, 0,) { *(.strtab) }
+    SECTION_PROLOGUE(.shstrtab, 0,) { *(.shstrtab) }
+#endif
+
+    /* Sections generated from 'zephyr,memory-region' nodes */
+    LINKER_DT_SECTIONS()
+
+/* Because ROMABLE_REGION != RAMABLE_REGION in XIP-system, it is valid
+ * to set __rom_region_end symbol at the end of linker script and
+ * doesn't mistakenly contain the RAMABLE_REGION in it.
+ */
+#ifdef CONFIG_XIP
+/* Must be last in romable region */
+SECTION_PROLOGUE(.last_section,,)
+{
+#ifdef CONFIG_LINKER_LAST_SECTION_ID
+  /* Fill last section with a word to ensure location counter and actual rom
+   * region data usage match. */
+  LONG(CONFIG_LINKER_LAST_SECTION_ID_PATTERN)
+  /* __rom_region_size is used when configuring the PMP entry of the ROM region.
+   * Addresses (pmpaddr) in PMP registers need to be aligned to 4. Align
+   * __rom_region_size to 4 to meet that requirement. */
+  MPU_MIN_SIZE_ALIGN
+#endif
+} GROUP_LINK_IN(ROMABLE_REGION)
+
+/* To provide the image size as a const expression,
+ * calculate this value here. */
+__rom_region_end = LOADADDR(.last_section) + SIZEOF(.last_section);
+__rom_region_used = __rom_region_end - __rom_region_start;
+__rom_region_size = 1 << LOG2CEIL(__rom_region_used);
+#ifdef CONFIG_RISCV_PMP
+ASSERT((__rom_region_start & (__rom_region_size - 1)) == 0, "ROM_BASE must be aligned to __rom_region_size for PMP NAPOT")
+#endif
+ASSERT(__rom_region_size <= ROM_SIZE, "__rom_region_size exceeds ROM_SIZE (check image size/flash size) ")
+#endif
+PROVIDE(__LD_CONFIG_EM_SEL = __EM_SIZE);
+}

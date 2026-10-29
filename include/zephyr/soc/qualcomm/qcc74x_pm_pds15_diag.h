@@ -114,7 +114,7 @@ struct qcc74x_pm_pds15_auto_diag_status {
 	enum qcc74x_pm_pds15_wifi_diag_reason wifi_reason;
 };
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 void qcc74x_pm_pds15_wifi_diag_sample(bool active_check);
 void qcc74x_pm_pds15_wifi_diag_get(
 	struct qcc74x_pm_pds15_wifi_diag_status *status);
@@ -180,7 +180,7 @@ static inline void qcc74x_pm_pds15_ble_inject_crash(void)
 }
 #endif
 
-#ifdef CONFIG_QCC74X_PM_PDS15
+#ifdef CONFIG_QCC74X_PM_LPFW
 /* Cumulative UART action counts since boot, independent of lp_pds reset. */
 struct qcc74x_pm_uart_diag {
 	uint32_t suspends;

@@ -6,7 +6,11 @@
 #include <stdint.h>
 #include <errno.h>
 
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include "pm_uart.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/soc/qualcomm/qcc74x_pm_pds15.h>
 #include <zephyr/sys/util.h>
@@ -24,6 +28,7 @@
 #include "qcc74x_glb.h"
 #include "qcc74x_sys.h"
 #include "qc7xx_lp.h"
+#include "qc7xx_uart.h"
 #include "qcc74x_glb_gpio.h"
 #include "qcc74x_gpio.h"
 
@@ -46,6 +51,22 @@ extern int hardware_recovery_lp(void);
 #if defined(CONFIG_WIFI)
 extern int qc7xx_wifi_rf_resume_restore(void);
 #endif
+
+#if defined(CONFIG_QCC74X_PM_PDS1)
+static uint8_t saved_cliccfg;
+#endif
+static uint32_t saved_em_sel;
+
+static void qcc74x_restore_uart_route_from_lp(void)
+{
+	/*
+	 * SystemInit() resets the UART signal router to "unassigned" on cold
+	 * boot before pinctrl binds TX/RX. PDS15 can lose that router state, so
+	 * make the wake path follow the same reset-then-pinctrl sequence.
+	 */
+	QC7XX_WR_REG(GLB_BASE, GLB_UART_CFG1, 0xffffffff);
+	QC7XX_WR_REG(GLB_BASE, GLB_UART_CFG2, 0x0000ffff);
+}
 
 static void qcc74x_restore_app_clocks_from_lp(void)
 {
@@ -75,6 +96,9 @@ static void qcc74x_restore_app_clocks_from_lp(void)
 	tmp_val = BIT(GLB_CGEN_S2_WIFI_POS) |
 		  BIT(GLB_CGEN_S1_EXT_EMI_MISC_POS) |
 		  BIT(GLB_CGEN_S1_EXT_PIO_POS);
+#ifdef CONFIG_QCC74X_PM_PDS1
+	tmp_val |= BIT(GLB_CGEN_S1_EXT_PSRAM_CTRL_POS);
+#endif
 	QC7XX_WR_REG(GLB_BASE, GLB_CGEN_CFG2, tmp_val);
 }
 
@@ -86,8 +110,9 @@ static int qcc74x_board_recovery_after_lp(void)
 		return rc;
 	}
 
+	qcc74x_restore_uart_route_from_lp();
 	/*
-	 * PDS15 wake resumes clocks and UART, but repeated LPFW copy/verify
+	 * PDS15 wake resumes clocks, but repeated LPFW copy/verify
 	 * also needs the CPU RAM sysmap attributes restored so the 0x63xxxxxx
 	 * cacheable aliases see the same OCRAM/WRAM windows as a cold boot.
 	 */
@@ -480,6 +505,11 @@ int32_t ATTR_TCM_SECTION lpfw_beacon_delay_sliding_win_get_average(void)
 void lp_hook_pre_user(void *arg)
 {
 	ARG_UNUSED(arg);
+#if defined(CONFIG_QCC74X_PM_PDS1)
+	saved_cliccfg = CLIC->CLICCFG;
+#endif
+	saved_em_sel = QC7XX_GET_REG_BITS_VAL(QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3),
+					    GLB_EM_SEL);
 }
 void lp_hook_pre_sleep(iot2lp_para_t *arg)
 {
@@ -490,12 +520,30 @@ void lp_hook_post_sys(iot2lp_para_t *arg)
 {
 	int board_recovery_rc = 0;
 	int wifi_rf_rc = 0;
+	uint32_t sram_cfg;
 
 	ARG_UNUSED(arg);
+
+	/* PDS reset restores the ROM default WRAM/EM split. Restore the exact
+	 * pre-sleep selector before any heap, cacheable-alias, or device access. */
+	sram_cfg = QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3);
+	sram_cfg = QC7XX_SET_REG_BITS_VAL(sram_cfg, GLB_EM_SEL, saved_em_sel);
+	QC7XX_WR_REG(GLB_BASE, GLB_SRAM_CFG3, sram_cfg);
+	(void)QC7XX_RD_REG(GLB_BASE, GLB_SRAM_CFG3);
+	__DSB();
+
+	/* PDS1 restores the CLIC mode captured before LPFW changed it. */
+#if defined(CONFIG_QCC74X_PM_PDS1)
+	CLIC->CLICCFG = saved_cliccfg;
+#endif
 
 	qcc74x_restore_app_clocks_from_lp();
 
 	board_recovery_rc = qcc74x_board_recovery_after_lp();
+	if (board_recovery_rc != 0) {
+		/* Clocks may be invalid; avoid more MMIO and logging. */
+		qcc74x_pm_uart_fail(board_recovery_rc);
+	}
 
 #if defined(CONFIG_WIFI)
 	wifi_rf_rc = qc7xx_wifi_rf_resume_restore();

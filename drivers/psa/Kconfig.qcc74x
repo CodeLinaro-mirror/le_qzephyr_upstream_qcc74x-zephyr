@@ -37,4 +37,48 @@ config PSA_CRYPTO_DRIVER_QCC74X_HASH
 	  Enable QCC74X PSA transparent hash acceleration using direct LHAL
 	  access. Supports SHA-1/224/256/384/512/512-224/512-256.
 
+config QCC74X_AEAD_HW_ACCEL
+	bool "QCC74X HW accelerated AEAD (AES-GCM)"
+	depends on PSA_CRYPTO_DRIVER_QCC74X_AES
+	help
+	  Enable HW accelerated AES-GCM using HW AES-ECB for CTR keystream
+	  and software GHASH (GF(2^128)) for authentication. The SEC Engine
+	  does not support native GCM, so GHASH runs in software.
+
+config QCC74X_AES_HWKEY
+	bool "QCC74X AES OTP HW key for Secure Storage"
+	depends on QCC74X_AEAD_HW_ACCEL
+	help
+	  Use OTP hardware key slot for AES operations instead of software key.
+	  When enabled, the AEAD driver skips psa_import_key() and configures
+	  the SEC Engine to use the OTP-fused hardware key directly.
+	  Only affects the AEAD (AES-GCM) path for Secure Storage; does not
+	  affect standalone AES cipher nor hash operations.
+
+if QCC74X_AES_HWKEY
+
+config QCC74X_AES_HWKEY_KEY_SEL0
+	hex "HW key select bit 0"
+	default 0x00
+	help
+	  First byte of the HW key selection (keysel0) passed to
+	  qc7xx_aes_select_hwkey().  Consult the SEC Engine reference manual
+	  for the efuse key table layout.
+
+config QCC74X_AES_HWKEY_KEY_SEL1
+	hex "HW key select bit 1"
+	default 0x00
+	help
+	  Second byte of the HW key selection (keysel1) passed to
+	  qc7xx_aes_select_hwkey().
+
+config QCC74X_AES_HWKEY_KEY_SOURCE
+	hex "HW key source"
+	default 0x00
+	help
+	  Hardware key source selector passed to qc7xx_aes_set_hwkey_source().
+	  0 = OTP efuse, 1 = secure key slot, etc.
+
+endif # QCC74X_AES_HWKEY
+
 endif # PSA_CRYPTO_DRIVER_QCC74X

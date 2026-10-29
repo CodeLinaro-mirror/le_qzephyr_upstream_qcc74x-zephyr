@@ -1,0 +1,195 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/dts-v1/;
+
+#include <qcom/qcc74x/qcc7483.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/interrupt-controller/qc7xx-qcc74x-intmux.h>
+#include "qcc748m3_evk-pinctrl.dtsi"
+
+/ {
+	model = "QCC748M-3 Evaluation Kit";
+	compatible = "qcom,qcc743";
+
+	aliases {
+		led0 = &led20;
+		sw0 = &button_0;
+		rtc = &rtc0;
+		watchdog0 = &wdt0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led20: led_20 {
+			gpios =  <&gpio0 20 GPIO_ACTIVE_HIGH>;
+			label = "LED 20";
+		};
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+		button_0: sw0 {
+			gpios = <&gpio0 2 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+};
+
+/ {
+	coredump_device0: coredump-device0 {
+		compatible = "zephyr,coredump";
+		coredump-type = "COREDUMP_TYPE_MEMCPY";
+		status = "okay";
+	};
+};
+
+&flashctrl {
+	flash0: flash@A0000000 {
+		compatible = "soc-nv-flash";
+		reg = <0xA0000000 DT_SIZE_K(8192 - 8)>;
+		write-block-size = <32>;
+		erase-block-size = <DT_SIZE_K(4)>;
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			/* Boot2 layout from HAL bsp/board/qcc74xdk/qcc74x/
+			 * partition_cfg_4M.toml. Both firmware slots are 2 MiB;
+			 * persistent partitions follow them in the upper Flash area.
+			 * MCUboot requires a separate boot/update layout.
+			 */
+
+			boot_partition: partition@0 {
+				label = "Boot2";
+				reg = <0x0 0xe000>;
+			};
+
+			partition_table0: partition@e000 {
+				label = "partition-table-0";
+				reg = <0xe000 0x1000>;
+			};
+
+			partition_table1: partition@f000 {
+				label = "partition-table-1";
+				reg = <0xf000 0x1000>;
+			};
+
+			slot0_partition: partition@10000 {
+				label = "image-0";
+				reg = <0x10000 0x200000>;
+			};
+
+			/* Boot2 FW slot1 and mfg share this same physical region. */
+
+			slot1_partition: mfg_partition: partition@210000 {
+				label = "image-1";
+				reg = <0x210000 0x200000>;
+			};
+
+			storage_partition: media_partition: partition@410000 {
+				label = "media";
+				reg = <0x410000 0x71000>;
+			};
+
+			psm_partition: partition@481000 {
+				label = "PSM";
+				reg = <0x481000 0x8000>;
+			};
+
+			key_partition: partition@489000 {
+				label = "KEY";
+				reg = <0x489000 0x2000>;
+			};
+
+			data_partition: partition@48b000 {
+				label = "DATA";
+				reg = <0x48b000 0x5000>;
+			};
+
+			factory_partition: partition@490000 {
+				label = "factory";
+				reg = <0x490000 0x8000>;
+			};
+		};
+	};
+};
+
+&uart1 {
+	status = "disabled";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-1 = <&uart1_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&timer0 {
+	status = "disabled";
+	counter-mode = <1>;
+	preload-id = <0>;
+	comp0-val = <1000000>;
+	comp1-val = <10000000>;
+	comp2-val = <0xFFFFFFFF>;
+	preload-val = <0>;
+};
+
+&timer1 {
+	status = "disabled";
+	counter-mode = <1>;
+	preload-id = <0>;
+	comp0-val = <1000000>;
+	comp1-val = <10000000>;
+	comp2-val = <0xFFFFFFFF>;
+	preload-val = <0>;
+};
+
+&comparator0 {
+	vio_sel = <33>;
+};
+
+&comparator1 {
+	vio_sel = <33>;
+};
+
+&wifi {
+	compatible = "qcom,wifi";
+	status = "okay";
+};
+
+/ {
+	wifi_sta: wifi_sta {
+		compatible = "qualcomm,qc7xx-wifi";
+		status = "okay";
+	};
+	wifi_ap: wifi_ap {
+		compatible = "qualcomm,qc7xx-wifi";
+		status = "okay";
+	};
+};
+
+&bt_hci {
+	status = "okay";
+};
+
+/*
+ * Camera shield label aliases.
+ * Shields such as weact_ov2640_cam_module reference &zephyr_camera_i2c and
+ * &zephyr_camera_dvp; these aliases map them to the board's i2c0 and cam nodes.
+ */
+zephyr_camera_i2c: &i2c0 {};
+zephyr_camera_dvp: &cam {};
+
+/*
+ * USB device controller alias.
+ * Samples such as cdc_acm/app.overlay reference &zephyr_udc0.
+ */
+zephyr_udc0: &usb {};

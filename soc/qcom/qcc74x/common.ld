@@ -226,14 +226,15 @@ SECTIONS
         *rv_Sv39*.o*(.srodata*)
         *rv_Sv39*.o*(.text*)
 
-	/*
+#ifdef CONFIG_PSRAM_COPY_CODE
         *(.text.arch_bss_zero)
         *(.text.arch_data_copy)
         *(.text.arch_early_memset)
         *(.text.arch_early_memcpy)
-        *(.text.memset)
-        *(.text.memcpy)
-	*/
+        *(.text.soc_prep_hook)
+        /* Claim this before PSRAM input and keep it in preliminary links. */
+        KEEP(*(.text.z_shared_isr*))
+#endif
     } > rom_header
 
     SECTION_PROLOGUE(reset,,)
@@ -241,11 +242,13 @@ SECTIONS
         KEEP(*(.reset.*))
     } > rom_header
 
+#ifndef CONFIG_PSRAM_COPY_CODE
     SECTION_PROLOGUE(exceptions,,)
     {
         KEEP(*(".exception.entry.*"))
         *(".exception.other.*")
     } > rom_header
+#endif
     QCC_GROUP_END(rom_header)
 
     QCC_GROUP_START(ram_nocache)
@@ -320,8 +323,6 @@ SECTIONS
 
         *_udivdi3*.o*(.text*)
 
-        PROVIDE( __global_pointer$ = . + 0x800 );
-
         /* ram_data has a section alignment of 8 (forced by a uint64_t
          * field inside struct bt_dev in one of its input sections), but it
          * may also need up to CONFIG_DCACHE_LINE_SIZE bytes for other input
@@ -371,6 +372,17 @@ SECTIONS
 
         *(.data)
         *(.data.*)
+
+#ifdef CONFIG_RISCV_GP
+        /* Keep small initialized data and .sbss within gp's signed 12-bit
+         * displacement window.  gp belongs after ordinary .data and before
+         * .sdata; defining it in the preceding ITCM section leaves .sbss
+         * beyond +0x7ff on QCC744 builds.
+         */
+        . = ALIGN(8);
+        PROVIDE(__global_pointer$ = . + 0x800);
+#endif
+
         *(.sdata)
         *(.sdata.*)
         *(.sdata2)
@@ -405,6 +417,19 @@ SECTIONS
 #include <snippets-data-sections.ld>
 
     __data_region_end = .;
+
+#ifdef CONFIG_PSRAM
+    QCC_GROUP_START(ram_psram)
+    QCC_SECTION_BSS_PROLOGUE(psram_static_scratch, (NOLOAD),)
+    {
+        . = ALIGN(4);
+        KEEP(*zperf_udp_uploader.c.obj(.bss.sample_packet))
+        KEEP(*zperf_tcp_uploader.c.obj(.bss.sample_packet))
+        KEEP(*flash_shell.c.obj(.bss.test_arr))
+        KEEP(*flash_shell.c.obj(.bss.check_arr*))
+        . = ALIGN(4);
+    } > ram_psram
+#endif
 
     QCC_SECTION_BSS_PROLOGUE(ram_bss, (NOLOAD),)
     {
@@ -445,7 +470,11 @@ SECTIONS
 #endif
         *(.noinit_data*)
         *(.noinit)
+#ifdef CONFIG_QCC74X_NET_PKT_PSRAM
+        *(EXCLUDE_FILE(*net_pkt.c.obj) .noinit.*)
+#else
         *(.noinit.*)
+#endif
 #ifndef CONFIG_NOINIT_SNIPPET_FIRST
 #include <snippets-noinit.ld>
 #endif
@@ -484,28 +513,30 @@ SECTIONS
 
     QCC_GROUP_END(ram)
 
-#ifdef CONFIG_PSRAM
-    QCC_GROUP_START(ram_psram)
+#ifdef CONFIG_PSRAM_COPY_CODE
+    /* Generated ISR metadata must precede the relocated code it references. */
+    __rodata_region_start = ADDR(initlevel);
+#include <zephyr/linker/common-rom.ld>
+#include <snippets-rom-sections.ld>
+#include <snippets-sections.ld>
+#include <zephyr/linker/thread-local-storage.ld>
+#include <zephyr/linker/cplusplus-rom.ld>
+#endif
 
+#ifdef CONFIG_PSRAM
     QCC_SECTION_DATA_PROLOGUE(psram_data, ,)
     {
         . = ALIGN(32);
 
 #ifdef CONFIG_PSRAM_COPY_CODE
-        /* Relocate the library groups validated for PSRAM execution. */
-        *libapp.a*:*(.text*)
-        *liblib*.a*:*(.text*)
-        *libdriver*.a*:*(.text*)
-        *libkernel.a*:*(.text*)
-        *libsubsys*.a*:*(.text*)
-        *libzperf.a*:*(.text*)
-
-        *libapp.a*:*(.rodata* .srodata*)
-        *liblib*.a*:*(.rodata* .srodata*)
-        *libdriver*.a*:*(.rodata* .srodata*)
-        *libkernel.a*:*(.rodata* .srodata*)
-        *libsubsys*.a*:*(.rodata* .srodata*)
-        *libzperf.a*:*(.rodata* .srodata*)
+        /* Startup and hardware-specific RAM sections are claimed above.
+         * Copy the remaining runtime code independently of the PM backend.
+         */
+        . = ALIGN(64);
+        KEEP(*(".exception.entry.*"))
+        *(".exception.other.*")
+        *(.text .text.* .gnu.linkonce.t.*)
+        *(.rodata .rodata.* .srodata .srodata.* .gnu.linkonce.r.*)
         . = ALIGN(32);
 #endif
 
@@ -523,6 +554,11 @@ SECTIONS
         . = ALIGN(4);
         KEEP(*(.psram_noinit*))
         KEEP(*(.img_buf*))
+
+#ifdef CONFIG_QCC74X_NET_PKT_PSRAM
+        /* Place fixed network pools in PSRAM when explicitly requested. */
+        *net_pkt.c.obj(.noinit.*)
+#endif
 
         . = ALIGN(32);
         KEEP(*(.psram_heap*))
@@ -575,10 +611,16 @@ SECTIONS
     QCC_SECTION_DATA_PROLOGUE(hbn_ram, ,)
     {
         . = ALIGN(32);
+        KEEP(*(.hbn_code.entry))
         KEEP(*(.hbn_code.*))
         KEEP(*(.hbn_data.*))
         . = ALIGN(32);
     } > hbn_memory  AT > rom
+#ifdef CONFIG_QCC74X_PM_LPFW
+    ASSERT(lp_fw_pre == 0x20010000, "LPFW entry must be at 0x20010000")
+    ASSERT(ADDR(hbn_ram) + SIZEOF(hbn_ram) <= 0x20010200,
+           "LPFW HBN code/data exceeds the reserved window")
+#endif
     QCC_GROUP_END(hbn_memory)
 
     QCC_GROUP_START(rom)
@@ -651,6 +693,8 @@ SECTIONS
         KEEP(*(".openocd_debug.*"))
 
         __text_region_start = .;
+        /* Keep the shared ISR present in both preliminary and final links. */
+        KEEP(*(.text.z_shared_isr*))
         *(.text*)
         *(.gnu.linkonce.t.*)
 #include <zephyr/linker/kobject-text.ld>
@@ -659,6 +703,7 @@ SECTIONS
     } > rom
 
 
+#ifndef CONFIG_PSRAM_COPY_CODE
     __rodata_region_start = .;
 #include <zephyr/linker/common-rom.ld>
 #include <snippets-rom-sections.ld>
@@ -667,6 +712,7 @@ SECTIONS
 #include <snippets-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 #include <zephyr/linker/cplusplus-rom.ld>
+#endif
 
     QCC_SECTION_BSS_PROLOGUE(rom_code, ,)
     {

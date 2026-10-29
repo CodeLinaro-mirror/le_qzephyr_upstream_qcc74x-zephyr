@@ -24,6 +24,10 @@
 #include <zephyr/cache.h>
 #endif
 #include <zephyr/pm/device.h>
+#include <zephyr/drivers/serial/uart_qc7xx.h>
+#ifdef CONFIG_QCC74X_PM_LPFW
+#include <zephyr/pm/pm.h>
+#endif
 
 #include <hardware/glb_reg.h>
 #include <qc7xx_uart.h>
@@ -61,11 +65,6 @@ LOG_MODULE_REGISTER(uart_qcc74x, CONFIG_UART_LOG_LEVEL);
 
 #define UART_ASYNC_RX_BUFFER_WATERMARK_PERCENTAGE 75U
 
-#define UART_QCC74X_RESUME_INTCLR_MASK                                        \
-	(UART_INTCLR_TX_END | UART_INTCLR_RX_END | UART_INTCLR_RTO |         \
-	 UART_INTCLR_PCE | UART_INTCLR_RX_LSE | UART_INTCLR_RX_BCR |        \
-	 UART_INTCLR_RX_ADS | UART_INTCLR_RX_AD5)
-
 #ifdef CONFIG_UART_ASYNC_API
 
 /**
@@ -100,6 +99,8 @@ enum uart_buffer_type {
  * @brief UART device configuration structure
  */
 struct uart_qcc74x_config {
+	unsigned int irq_source;
+	bool pm_protected;
 	/** Pin control configuration */
 	const struct pinctrl_dev_config *pincfg;
 	/** Clock control configuration */
@@ -144,6 +145,21 @@ struct uart_qcc74x_data {
 	struct qc7xx_device_s hal_uart_cfg;
 	/** Spinlock for synchronization */
 	struct k_spinlock lock;
+#ifdef CONFIG_PM_DEVICE
+	uint32_t pm_users;
+	uint32_t saved_irq_mask;
+	bool saved_irq_enabled;
+	bool suspended;
+	bool transitioning;
+#ifdef CONFIG_QCC74X_PM_LPFW
+	bool pds15_snapshot;
+	struct uart_qc7xx_pm_stats pm_stats;
+#ifdef CONFIG_RISCV_HAS_CLIC
+	uint8_t saved_clic_attr;
+	uint8_t saved_clic_ctl;
+#endif
+#endif
+#endif
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	/** User callback function */
 	uart_irq_callback_user_data_t user_cb;
@@ -204,6 +220,39 @@ struct uart_qcc74x_data {
 #endif /* CONFIG_UART_ASYNC_API */
 };
 
+/*
+ * Keep PM out of MMIO, DMA setup and completion callbacks without holding a
+ * spinlock across polling, DMA APIs or application callbacks.
+ */
+static bool uart_qcc74x_access_get(struct uart_qcc74x_data *data)
+{
+#ifdef CONFIG_PM_DEVICE
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+	bool active = !data->suspended && !data->transitioning;
+
+	if (active) {
+		data->pm_users++;
+	}
+	k_spin_unlock(&data->lock, key);
+	return active;
+#else
+	ARG_UNUSED(data);
+	return true;
+#endif
+}
+
+static void uart_qcc74x_access_put(struct uart_qcc74x_data *data)
+{
+#ifdef CONFIG_PM_DEVICE
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	data->pm_users--;
+	k_spin_unlock(&data->lock, key);
+#else
+	ARG_UNUSED(data);
+#endif
+}
+
 struct uart_qcc74x_global_data {
 	/* Flag keeping information: Is clock already initialized? */
 	bool is_clk_init;
@@ -246,7 +295,19 @@ static void uart_qcc74x_async_handle_rto_interrupt(const struct device *dev,
 						 struct uart_qcc74x_data *data);
 #endif
 
+static int uart_qcc74x_poll_in_active(const struct device *dev, unsigned char *c);
+
 static int uart_qcc74x_poll_in(const struct device *dev, unsigned char *c)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_poll_in_active(dev, c);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_poll_in_active(const struct device *dev, unsigned char *c)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -260,7 +321,18 @@ static int uart_qcc74x_poll_in(const struct device *dev, unsigned char *c)
 	return 0;
 }
 
+static void uart_qcc74x_poll_out_active(const struct device *dev, const unsigned char c);
+
 static void uart_qcc74x_poll_out(const struct device *dev, const unsigned char c)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_poll_out_active(dev, c);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_poll_out_active(const struct device *dev, const unsigned char c)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -697,7 +769,19 @@ static int32_t uart_qcc74x_configure_baudrate(const struct device *dev, const ui
 }
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
+static int32_t uart_qcc74x_err_check_active(const struct device *dev);
+
 static int32_t uart_qcc74x_err_check(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_err_check_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_err_check_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	uint32_t int_status = 0U;
@@ -731,7 +815,19 @@ static int32_t uart_qcc74x_err_check(const struct device *dev)
 	return errors;
 }
 
+static int32_t uart_qcc74x_irq_tx_ready_active(const struct device *dev);
+
 static int32_t uart_qcc74x_irq_tx_ready(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_irq_tx_ready_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_irq_tx_ready_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -753,7 +849,19 @@ static int32_t uart_qcc74x_irq_tx_ready(const struct device *dev)
 	return 1;
 }
 
+static int32_t uart_qcc74x_irq_rx_ready_active(const struct device *dev);
+
 static int32_t uart_qcc74x_irq_rx_ready(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_irq_rx_ready_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_irq_rx_ready_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -775,7 +883,21 @@ static int32_t uart_qcc74x_irq_rx_ready(const struct device *dev)
 	return 1;
 }
 
+static int32_t uart_qcc74x_fifo_fill_active(const struct device *dev, const uint8_t *tx_data,
+				   const int32_t len);
+
 static int32_t uart_qcc74x_fifo_fill(const struct device *dev, const uint8_t *tx_data,
+				   const int32_t len)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_fifo_fill_active(dev, tx_data, len);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_fifo_fill_active(const struct device *dev, const uint8_t *tx_data,
 				   const int32_t len)
 {
 	struct uart_qcc74x_data *data = dev->data;
@@ -802,7 +924,19 @@ static int32_t uart_qcc74x_fifo_fill(const struct device *dev, const uint8_t *tx
 	return num_tx;
 }
 
+static int32_t uart_qcc74x_fifo_read_active(const struct device *dev, uint8_t *rx_data, const int32_t size);
+
 static int32_t uart_qcc74x_fifo_read(const struct device *dev, uint8_t *rx_data, const int32_t size)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_fifo_read_active(dev, rx_data, size);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_fifo_read_active(const struct device *dev, uint8_t *rx_data, const int32_t size)
 {
 	int32_t num_rx = 0;
 
@@ -821,7 +955,18 @@ static int32_t uart_qcc74x_fifo_read(const struct device *dev, uint8_t *rx_data,
 	return num_rx;
 }
 
+static void uart_qcc74x_irq_tx_enable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_tx_enable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_tx_enable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_tx_enable_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -831,7 +976,18 @@ static void uart_qcc74x_irq_tx_enable(const struct device *dev)
 	LOG_DBG("TX interrupt enabled");
 }
 
+static void uart_qcc74x_irq_tx_disable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_tx_disable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_tx_disable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_tx_disable_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -841,7 +997,19 @@ static void uart_qcc74x_irq_tx_disable(const struct device *dev)
 	LOG_DBG("TX interrupt disabled");
 }
 
+static int32_t uart_qcc74x_irq_tx_complete_active(const struct device *dev);
+
 static int32_t uart_qcc74x_irq_tx_complete(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_irq_tx_complete_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_irq_tx_complete_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -862,7 +1030,18 @@ static int32_t uart_qcc74x_irq_tx_complete(const struct device *dev)
 	return 1;
 }
 
+static void uart_qcc74x_irq_rx_enable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_rx_enable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_rx_enable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_rx_enable_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -890,7 +1069,18 @@ static void uart_qcc74x_irq_rx_enable(const struct device *dev)
 	LOG_DBG("RX interrupt enabled");
 }
 
+static void uart_qcc74x_irq_rx_disable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_rx_disable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_rx_disable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_rx_disable_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -912,7 +1102,18 @@ static void uart_qcc74x_irq_rx_disable(const struct device *dev)
 	LOG_DBG("RX interrupt disabled");
 }
 
+static void uart_qcc74x_irq_err_enable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_err_enable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_err_enable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_err_enable_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -921,7 +1122,18 @@ static void uart_qcc74x_irq_err_enable(const struct device *dev)
 	LOG_DBG("Error interrupts enabled");
 }
 
+static void uart_qcc74x_irq_err_disable_active(const struct device *dev);
+
 static void uart_qcc74x_irq_err_disable(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_irq_err_disable_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_irq_err_disable_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
@@ -930,14 +1142,32 @@ static void uart_qcc74x_irq_err_disable(const struct device *dev)
 	LOG_DBG("Error interrupts disabled");
 }
 
+static int32_t uart_qcc74x_irq_is_pending_active(const struct device *dev);
+
 static int32_t uart_qcc74x_irq_is_pending(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return 0;
+	}
+	int ret = uart_qcc74x_irq_is_pending_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int32_t uart_qcc74x_irq_is_pending_active(const struct device *dev)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	struct qc7xx_device_s *hal_cfg = &data->hal_uart_cfg;
 	const uint32_t uart_interrupt_status = qc7xx_uart_get_intstatus(hal_cfg);
-	const uint32_t pending = uart_interrupt_status & UART_INT_RELEVANT_BITS;
 
-	return (pending != 0) ? 1 : 0;
+	if ((uart_interrupt_status & (UART_URX_FIFO_INT | UART_URX_RTO_INT)) != 0U) {
+		return qc7xx_uart_rxavailable(hal_cfg);
+	}
+	if ((uart_interrupt_status & UART_UTX_FIFO_INT) != 0U) {
+		return qc7xx_uart_txready(hal_cfg);
+	}
+
+	return 0;
 }
 
 static int32_t uart_qcc74x_irq_update(const struct device *dev)
@@ -964,7 +1194,18 @@ static void uart_qcc74x_irq_callback_set(const struct device *dev, uart_irq_call
  *
  * @param dev UART device instance
  */
+static void uart_qcc74x_isr_active(const struct device *dev);
+
 static void uart_qcc74x_isr(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_isr_active(dev);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_isr_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -1061,7 +1302,19 @@ static void uart_qcc74x_async_handle_rto_interrupt(const struct device *dev,
 #endif /* CONFIG_UART_ASYNC_API */
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
+static int uart_qcc74x_configure_active(const struct device *dev, const struct uart_config *cfg);
+
 static int uart_qcc74x_configure(const struct device *dev, const struct uart_config *cfg)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_configure_active(dev, cfg);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_configure_active(const struct device *dev, const struct uart_config *cfg)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -1350,7 +1603,22 @@ static inline void uart_qcc74x_async_request_new_buffer_if_needed(const struct d
  *
  * @param dev UART device instance
  */
+static void uart_qcc74x_async_tx_timeout_active(struct k_work *work);
+
 static void uart_qcc74x_async_tx_timeout(struct k_work *work)
+{
+	struct uart_qcc74x_data *data = CONTAINER_OF(
+		k_work_delayable_from_work(work), struct uart_qcc74x_data,
+		async_tx.timeout_work);
+	const struct device *dev = data->dev;
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_async_tx_timeout_active(work);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_async_tx_timeout_active(struct k_work *work)
 {
 	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
 	struct uart_qcc74x_data *data =
@@ -1366,7 +1634,22 @@ static void uart_qcc74x_async_tx_timeout(struct k_work *work)
  *
  * @param work Timeout work structure
  */
+static void uart_qcc74x_async_rx_timeout_active(struct k_work *work);
+
 static void uart_qcc74x_async_rx_timeout(struct k_work *work)
+{
+	struct uart_qcc74x_data *data = CONTAINER_OF(
+		k_work_delayable_from_work(work), struct uart_qcc74x_data,
+		async_rx.timeout_work);
+	const struct device *dev = data->dev;
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_async_rx_timeout_active(work);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_async_rx_timeout_active(struct k_work *work)
 {
 	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
 	struct uart_qcc74x_data *data =
@@ -1413,7 +1696,21 @@ static void uart_qcc74x_async_rx_timeout(struct k_work *work)
 /**
  * @brief DMA TX callback
  */
+static void uart_qcc74x_dma_tx_callback_active(const struct device *dma_dev, void *user_data,
+				      uint32_t channel, int status);
+
 static void uart_qcc74x_dma_tx_callback(const struct device *dma_dev, void *user_data,
+				      uint32_t channel, int status)
+{
+	const struct device *dev = user_data;
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_dma_tx_callback_active(dma_dev, user_data, channel, status);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_dma_tx_callback_active(const struct device *dma_dev, void *user_data,
 				      uint32_t channel, int status)
 {
 	const struct device *dev = user_data;
@@ -1455,7 +1752,21 @@ static void uart_qcc74x_dma_tx_callback(const struct device *dma_dev, void *user
  *
  * @param dev UART device instance
  */
+static void uart_qcc74x_dma_rx_callback_active(const struct device *dma_dev, void *user_data,
+				      uint32_t channel, int status);
+
 static void uart_qcc74x_dma_rx_callback(const struct device *dma_dev, void *user_data,
+				      uint32_t channel, int status)
+{
+	const struct device *dev = user_data;
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return;
+	}
+	uart_qcc74x_dma_rx_callback_active(dma_dev, user_data, channel, status);
+	uart_qcc74x_access_put(dev->data);
+}
+
+static void uart_qcc74x_dma_rx_callback_active(const struct device *dma_dev, void *user_data,
 				      uint32_t channel, int status)
 {
 	const struct device *dev = user_data;
@@ -1692,8 +2003,15 @@ static void uart_qcc74x_async_configure_rx_timeout(const struct uart_qcc74x_conf
 						 struct uart_qcc74x_data *data, int32_t timeout_us)
 {
 	const uint32_t baudrate = data->current_cfg.baudrate;
-	const uint32_t single_bit_time_us = USEC_PER_SEC / baudrate;
-	uint32_t bits_before_timeout = timeout_us / single_bit_time_us;
+	uint64_t bits_before_timeout;
+
+	/*
+	 * Do not calculate the bit time first: integer microseconds round to
+	 * zero at 10 Mbps. Calculate the number of bit periods directly and
+	 * round up, so the result remains valid at the maximum supported baud.
+	 */
+	bits_before_timeout = ((uint64_t)(uint32_t)timeout_us * baudrate +
+				      USEC_PER_SEC - 1U) / USEC_PER_SEC;
 
 	/* Clamp to hardware limits (RTO register is 8-bit) */
 	if (bits_before_timeout > UINT8_MAX) {
@@ -1705,7 +2023,7 @@ static void uart_qcc74x_async_configure_rx_timeout(const struct uart_qcc74x_conf
 	/* Enable hardware RTO interrupt */
 	uart_qcc74x_rto_interrupt_control(config, data, true, bits_before_timeout);
 
-	LOG_DBG("RX timeout configured: HW=%u bits", bits_before_timeout);
+	LOG_DBG("RX timeout configured: HW=%u bits", (uint32_t)bits_before_timeout);
 }
 
 /**
@@ -1749,7 +2067,21 @@ static int uart_qcc74x_callback_set(const struct device *dev, uart_callback_t ca
 	return 0;
 }
 
+static int uart_qcc74x_tx_async_active(const struct device *dev, const uint8_t *buf, size_t len,
+			      int32_t timeout);
+
 static int uart_qcc74x_tx_async(const struct device *dev, const uint8_t *buf, size_t len,
+			      int32_t timeout)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_tx_async_active(dev, buf, len, timeout);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_tx_async_active(const struct device *dev, const uint8_t *buf, size_t len,
 			      int32_t timeout)
 {
 	const struct uart_qcc74x_config *config = dev->config;
@@ -1818,7 +2150,19 @@ static int uart_qcc74x_tx_async(const struct device *dev, const uint8_t *buf, si
 	return 0;
 }
 
+static int uart_qcc74x_tx_abort_async_active(const struct device *dev);
+
 static int uart_qcc74x_tx_abort_async(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_tx_abort_async_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_tx_abort_async_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -1835,7 +2179,6 @@ static int uart_qcc74x_tx_abort_async(const struct device *dev)
 		LOG_WRN("No TX in progress to abort");
 		return -EINVAL;
 	}
-
 	/* Save original length before clearing state */
 	size_t tx_requested = data->async_tx.len;
 
@@ -1854,7 +2197,6 @@ static int uart_qcc74x_tx_abort_async(const struct device *dev)
 
 	/* Disable UART TX DMA */
 	qc7xx_uart_link_txdma(&data->hal_uart_cfg, false);
-
 	/* Cancel timeout */
 	k_work_cancel_delayable(&data->async_tx.timeout_work);
 
@@ -1866,7 +2208,21 @@ static int uart_qcc74x_tx_abort_async(const struct device *dev)
 	return 0;
 }
 
+static int uart_qcc74x_rx_enable_async_active(const struct device *dev, uint8_t *buf, size_t len,
+				     int32_t timeout);
+
 static int uart_qcc74x_rx_enable_async(const struct device *dev, uint8_t *buf, size_t len,
+				     int32_t timeout)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_rx_enable_async_active(dev, buf, len, timeout);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_rx_enable_async_active(const struct device *dev, uint8_t *buf, size_t len,
 				     int32_t timeout)
 {
 	const struct uart_qcc74x_config *config = dev->config;
@@ -1937,7 +2293,19 @@ static int uart_qcc74x_rx_enable_async(const struct device *dev, uint8_t *buf, s
 	return 0;
 }
 
+static int uart_qcc74x_rx_buf_rsp_async_active(const struct device *dev, uint8_t *buf, size_t len);
+
 static int uart_qcc74x_rx_buf_rsp_async(const struct device *dev, uint8_t *buf, size_t len)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_rx_buf_rsp_async_active(dev, buf, len);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_rx_buf_rsp_async_active(const struct device *dev, uint8_t *buf, size_t len)
 {
 	struct uart_qcc74x_data *data = dev->data;
 	k_spinlock_key_t key = {0};
@@ -1971,7 +2339,19 @@ static int uart_qcc74x_rx_buf_rsp_async(const struct device *dev, uint8_t *buf, 
 	return 0;
 }
 
+static int uart_qcc74x_rx_disable_async_active(const struct device *dev);
+
 static int uart_qcc74x_rx_disable_async(const struct device *dev)
+{
+	if (!uart_qcc74x_access_get(dev->data)) {
+		return -EACCES;
+	}
+	int ret = uart_qcc74x_rx_disable_async_active(dev);
+	uart_qcc74x_access_put(dev->data);
+	return ret;
+}
+
+static int uart_qcc74x_rx_disable_async_active(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
@@ -2204,117 +2584,214 @@ static int32_t uart_qcc74x_init(const struct device *dev)
 	return 0;
 }
 
-static void uart_qcc74x_clear_resume_interrupts(const struct device *dev)
-{
-	struct uart_qcc74x_data *data = dev->data;
-
-	qc7xx_uart_int_clear(&data->hal_uart_cfg, UART_QCC74X_RESUME_INTCLR_MASK);
-}
-
-static void uart_qcc74x_restore_hw_state(const struct device *dev)
+#ifdef CONFIG_PM_DEVICE
+/* Restore hardware only; preserve application callbacks and DMA buffers. */
+static int uart_qcc74x_hw_restore(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
 	struct uart_qcc74x_data *data = dev->data;
-	struct qc7xx_uart_config_s uart_cfg = {
-		.baudrate          = data->current_cfg.baudrate,
-		.data_bits         = (uint8_t)data->current_cfg.data_bits,
-		.stop_bits         = (uint8_t)data->current_cfg.stop_bits,
-		.parity            = (uint8_t)data->current_cfg.parity,
-		.flow_ctrl         = (uint8_t)data->current_cfg.flow_ctrl,
-		.bit_order         = UART_LSB_FIRST,
-		.tx_fifo_threshold = 7,
-		.rx_fifo_threshold = 7,
+	struct qcc74x_clk_settings settings = {
+		.enable = CLOCK_ENABLE,
+		.clk_src = driver_global_data.clk_src,
+		.clk_div = driver_global_data.div_val,
 	};
+	int ret = clock_control_configure(config->clock_dev, config->clock_id, &settings);
 
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	uart_qcc74x_irq_tx_disable(dev);
-	uart_qcc74x_irq_rx_disable(dev);
-	uart_qcc74x_irq_err_disable(dev);
-#endif
-	uart_qcc74x_clear_resume_interrupts(dev);
-	qc7xx_uart_init(&data->hal_uart_cfg, &uart_cfg);
-	uart_qcc74x_clear_resume_interrupts(dev);
-
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	if (config->irq_config_func) {
-		config->irq_config_func(dev);
+	if (ret != 0) {
+		return ret;
 	}
-	uart_qcc74x_irq_tx_disable(dev);
-	uart_qcc74x_irq_rx_disable(dev);
-	uart_qcc74x_irq_err_disable(dev);
-	uart_qcc74x_clear_resume_interrupts(dev);
-
-	/* Restore the interrupt-driven API state recorded by the driver. */
-	if (data->user_cb != NULL) {
-		uart_qcc74x_irq_rx_enable(dev);
-		uart_qcc74x_irq_tx_enable(dev);
+	ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
+	if (ret != 0) {
+		return ret;
 	}
-#endif
+	sys_write32(UINT32_MAX, config->base_reg + UART_INT_MASK_OFFSET);
+	ret = uart_qcc74x_configure_active(dev, &data->current_cfg);
+	qc7xx_uart_int_clear(&data->hal_uart_cfg,
+		UART_INTCLR_TX_END | UART_INTCLR_RX_END | UART_INTCLR_RTO |
+		UART_INTCLR_PCE | UART_INTCLR_RX_LSE | UART_INTCLR_RX_BCR |
+		UART_INTCLR_RX_ADS | UART_INTCLR_RX_AD5);
+	return ret;
 }
 
-/**
- * @brief Power management action handler
- *
- * @param dev UART device instance
- * @param action Power management action
- * @return 0 on success, negative errno on failure
- */
-static int32_t uart_qcc74x_pm_control(const struct device *dev, const enum pm_device_action action)
+#ifdef CONFIG_QCC74X_PM_LPFW
+static bool uart_qc7xx_system_pds15(void)
+{
+	unsigned int key = irq_lock();
+	const struct pm_state_info *state = pm_state_next_get(0);
+	bool allowed = !arch_irq_unlocked(key) &&
+		state->state == PM_STATE_SUSPEND_TO_RAM &&
+		state->substate_id == QCC74X_PM_LPFW_SUBSTATE_ID &&
+		!state->pm_device_disabled;
+
+	irq_unlock(key);
+	return allowed;
+}
+
+static FUNC_NORETURN void uart_qc7xx_pm_stop(struct uart_qcc74x_data *data,
+					 int rc)
+{
+	(void)irq_lock();
+	data->pm_stats.last_rc = rc;
+	data->pm_stats.failures++;
+	/* Do not let the manager continue after a failed system RESUME. */
+	for (;;) {
+		arch_nop();
+	}
+}
+#endif
+
+static void uart_qc7xx_pm_irq_restore(const struct device *dev)
 {
 	const struct uart_qcc74x_config *config = dev->config;
-	int32_t ret = 0;
+	struct uart_qcc74x_data *data = dev->data;
+	struct qc7xx_device_s *uart = &data->hal_uart_cfg;
 
-	switch (action) {
-	case PM_DEVICE_ACTION_RESUME:
-		/*Do not print log before uart resume done*/
+	irq_disable(config->irq_source);
+#if defined(CONFIG_QCC74X_PM_LPFW) && \
+	defined(CONFIG_RISCV_HAS_CLIC)
+	/* Include UARTs explicitly suspended before the system transition. */
+	CLIC->CLICINT[config->irq_source].ATTR = data->saved_clic_attr;
+	CLIC->CLICINT[config->irq_source].CTL = data->saved_clic_ctl;
+#endif
+	sys_write32(data->saved_irq_mask,
+		    uart->reg_base + UART_INT_MASK_OFFSET);
+	if (data->saved_irq_enabled) {
+		irq_enable(config->irq_source);
+	}
+}
 
-		/* Apply default pin configuration */
-		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
-		if (ret < 0) {
-			return ret;
-		}
+static int uart_qc7xx_pm_action(const struct device *dev,
+			       enum pm_device_action action)
+{
+	const struct uart_qcc74x_config *config = dev->config;
+	struct uart_qcc74x_data *data = dev->data;
+	struct qc7xx_device_s *uart = &data->hal_uart_cfg;
+	k_spinlock_key_t key;
+	int ret = 0;
+#ifdef CONFIG_QCC74X_PM_LPFW
+	bool system_pds15 = uart_qc7xx_system_pds15();
 
-		/* Enable clock to peripheral */
-		ret = clock_control_on(config->clock_dev,
-				       (clock_control_subsys_t)(uintptr_t)config->clock_id);
-		if (ret != 0) {
-			if (ret == -EALREADY) {
-				/*Clock for UART driver is already enabled*/;
-			} else {
-				return ret;
-			}
-		}
-
-		/* Rebuild UART hardware state lost by a low-power transition. */
-		uart_qcc74x_restore_hw_state(dev);
-		break;
-
-	case PM_DEVICE_ACTION_SUSPEND:
-		LOG_DBG("Suspending UART");
-
-		/* Apply sleep pin configuration if available */
-		ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_SLEEP);
-		if ((ret < 0) && (ret != -ENOENT)) {
-			LOG_ERR("Failed to apply sleep pinctrl state: %d", ret);
-			return ret;
-		}
-
-		/* Disable clock to peripheral */
-		ret = clock_control_off(config->clock_dev,
-					(clock_control_subsys_t)(uintptr_t)config->clock_id);
-		if (ret != 0) {
-			LOG_ERR("Failed to disable UART clock: %d", ret);
-			return ret;
-		}
-		break;
-
-	default:
-		LOG_ERR("Unsupported PM action: %d", action);
+	/* Shallow idle retains UART power and interrupt service. */
+	if (action == PM_DEVICE_ACTION_SUSPEND &&
+	    pm_state_next_get(0)->state != PM_STATE_ACTIVE && !system_pds15) {
 		return -ENOTSUP;
 	}
+#endif
 
-	return 0;
+	if (action != PM_DEVICE_ACTION_SUSPEND &&
+	    action != PM_DEVICE_ACTION_RESUME) {
+		return -ENOTSUP;
+	}
+	if (uart == NULL) {
+		return -ENODEV;
+	}
+	if (action == PM_DEVICE_ACTION_SUSPEND && config->pm_protected) {
+#ifdef CONFIG_QCC74X_PM_LPFW
+		if (!system_pds15) {
+			return -EBUSY;
+		}
+#else
+		return -EBUSY;
+#endif
+	}
+
+	key = k_spin_lock(&data->lock);
+	if (data->transitioning || data->pm_users != 0U) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	if (action == PM_DEVICE_ACTION_SUSPEND) {
+#ifdef CONFIG_QCC74X_PM_LPFW
+		/* An empty FIFO does not exclude queued shell TX. */
+		if (system_pds15 &&
+		    !(sys_read32(uart->reg_base + UART_INT_MASK_OFFSET) &
+		      UART_CR_UTX_FIFO_MASK)) {
+			ret = -EBUSY;
+			goto out;
+		}
+#endif
+#ifdef CONFIG_UART_ASYNC_API
+		if (data->async_tx.state != UART_ASYNC_TX_IDLE ||
+		    data->async_rx.state != UART_ASYNC_RX_DISABLED ||
+		    k_work_busy_get(&data->async_tx.timeout_work.work) ||
+		    k_work_busy_get(&data->async_rx.timeout_work.work)) {
+			ret = -EBUSY;
+			goto out;
+		}
+#endif
+		if (!qc7xx_uart_txempty(uart) || qc7xx_uart_rxavailable(uart) ||
+		    (sys_read32(uart->reg_base + UART_STATUS_OFFSET) &
+		     (UART_STS_UTX_BUS_BUSY | UART_STS_URX_BUS_BUSY)) ||
+		    qc7xx_uart_get_intstatus(uart)) {
+			ret = -EBUSY;
+			goto out;
+		}
+		data->saved_irq_mask =
+			sys_read32(uart->reg_base + UART_INT_MASK_OFFSET);
+		data->saved_irq_enabled = irq_is_enabled(config->irq_source);
+#ifdef CONFIG_QCC74X_PM_LPFW
+		data->pds15_snapshot = system_pds15;
+#ifdef CONFIG_RISCV_HAS_CLIC
+		data->saved_clic_attr = CLIC->CLICINT[config->irq_source].ATTR;
+		data->saved_clic_ctl = CLIC->CLICINT[config->irq_source].CTL;
+#endif
+#endif
+		irq_disable(config->irq_source);
+		sys_write32(UINT32_MAX, uart->reg_base + UART_INT_MASK_OFFSET);
+		qc7xx_uart_disable(uart);
+		data->suspended = true;
+	} else {
+		/* Pinctrl may lock: restore with access gated. */
+		data->transitioning = true;
+		k_spin_unlock(&data->lock, key);
+		ret = uart_qcc74x_hw_restore(dev);
+#ifdef CONFIG_QCC74X_PM_LPFW
+		if (ret != 0 && data->pds15_snapshot) {
+			data->pm_stats.retries++;
+			ret = uart_qcc74x_hw_restore(dev);
+		}
+#endif
+		key = k_spin_lock(&data->lock);
+		if (ret == 0) {
+			uart_qc7xx_pm_irq_restore(dev);
+			data->suspended = false;
+		}
+		data->transitioning = false;
+	}
+out:
+#ifdef CONFIG_QCC74X_PM_LPFW
+	data->pm_stats.last_rc = ret;
+	if (action == PM_DEVICE_ACTION_SUSPEND) {
+		if (ret == 0) {
+			data->pm_stats.suspends++;
+		} else {
+			data->pm_stats.rejected++;
+		}
+	} else if (ret == 0) {
+		data->pm_stats.resumes++;
+		data->pds15_snapshot = false;
+	} else if (data->pds15_snapshot) {
+		uart_qc7xx_pm_stop(data, ret);
+	}
+#endif
+	k_spin_unlock(&data->lock, key);
+	return ret;
 }
+#endif
+
+#ifdef CONFIG_QCC74X_PM_LPFW
+void uart_qc7xx_pm_stats_get(const struct device *dev,
+			   struct uart_qc7xx_pm_stats *stats)
+{
+	struct uart_qcc74x_data *data = dev->data;
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	*stats = data->pm_stats;
+	stats->suspended = data->suspended;
+	k_spin_unlock(&data->lock, key);
+}
+#endif
 
 /* UART driver API structure */
 static const struct uart_driver_api uart_qcc74x_driver_api = {
@@ -2410,6 +2887,10 @@ static const struct uart_driver_api uart_qcc74x_driver_api = {
 #define UART_QCC74X_DMA_INIT(n) /* Empty - no DMA fields in config */
 #endif                        /* CONFIG_UART_ASYNC_API */
 
+#define UART_QCC74X_IS_CHOSEN(n, chosen) \
+	COND_CODE_1(DT_HAS_CHOSEN(chosen), \
+		    (DT_SAME_NODE(DT_DRV_INST(n), DT_CHOSEN(chosen))), (0))
+
 #define UART_QCC74X_DEVICE(n)                                                                        \
 	PINCTRL_DT_INST_DEFINE(n);                                                                 \
 	UART_QCC74X_IRQ_HANDLER_DECL(n)                                                              \
@@ -2432,6 +2913,10 @@ static const struct uart_driver_api uart_qcc74x_driver_api = {
 			},                                                                         \
 	};                                                                                         \
 	static const struct uart_qcc74x_config uart##n##_config = {                                  \
+		.irq_source = DT_INST_IRQN(n), \
+		.pm_protected = UART_QCC74X_IS_CHOSEN(n, zephyr_console) || \
+			UART_QCC74X_IS_CHOSEN(n, zephyr_shell_uart) || \
+			UART_QCC74X_IS_CHOSEN(n, zephyr_log_uart), \
 		.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),                                       \
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),                                \
 		.clock_id = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(n, id),                    \
@@ -2442,7 +2927,7 @@ static const struct uart_driver_api uart_qcc74x_driver_api = {
 		.reset = RESET_DT_SPEC_INST_GET(n),                                                \
 		UART_QCC74X_DMA_INIT(n) UART_QCC74X_IRQ_HANDLER_FUNC(n)};                              \
 	IF_ENABLED(CONFIG_PM_DEVICE,                                                               \
-		(PM_DEVICE_DT_INST_DEFINE(n, uart_qcc74x_pm_control);))                            \
+		(PM_DEVICE_DT_INST_DEFINE(n, uart_qc7xx_pm_action);))                            \
 	DEVICE_DT_INST_DEFINE(n, &uart_qcc74x_init, PM_DEVICE_DT_INST_GET(n), &uart##n##_data,        \
 			      &uart##n##_config, UART_QCC74X_INIT_LEVEL(n),                          \
 			      UART_QCC74X_INIT_PRIORITY(n), &uart_qcc74x_driver_api);                  \

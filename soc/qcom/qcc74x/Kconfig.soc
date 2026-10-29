@@ -5,15 +5,19 @@ config SOC_SERIES_QCC74X
 	bool
 	select SOC_FAMILY_QCOM_QCC7XX
 
-config SOC_QCC743
+config SOC_QCC7431
 	bool
 	select SOC_SERIES_QCC74X
 
-config SOC_QCC744
+config SOC_QCC7442
 	bool
 	select SOC_SERIES_QCC74X
 
-config SOC_QCC748
+config SOC_QCC7482
+	bool
+	select SOC_SERIES_QCC74X
+
+config SOC_QCC7483
 	bool
 	select SOC_SERIES_QCC74X
 
@@ -21,9 +25,10 @@ config GEN_SW_ISR_TABLE
 	bool
 
 config SOC
-	default "qcc743" if SOC_QCC743
-	default "qcc744" if SOC_QCC744
-	default "qcc748" if SOC_QCC748
+	default "qcc7431" if SOC_QCC7431
+	default "qcc7442" if SOC_QCC7442
+	default "qcc7482" if SOC_QCC7482
+	default "qcc7483" if SOC_QCC7483
 
 config SOC_SERIES
 	default "qcc74x" if SOC_SERIES_QCC74X

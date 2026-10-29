@@ -403,7 +403,7 @@ static int qcc74x_hci_driver_open(const struct device *dev, bt_hci_recv_t recv)
 {
 	struct qcc74x_hci_driver_data *data = dev->data;
 
-#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR373)
+#if defined(CONFIG_SOC_SERIES_QCC75X) || defined(CONFIG_SOC_SERIES_QCR3XX)
 	extern void btblecontroller_set_mac(uint8_t mac[6]);
 	uint8_t bd_addr_mac[6] = {0x22, 0x22, 0x22, 0x88, 0x88, 0x88};
 	btblecontroller_set_mac(bd_addr_mac);

@@ -53,21 +53,26 @@ static struct k_spinlock soc_multi_heap_lock;
 
 extern uint32_t __HeapBase;
 extern uint32_t __HeapLimit;
+#ifndef CONFIG_PSRAM
 extern uint32_t _heap_wifi_start;
 extern uint32_t _heap_wifi_size;
+#endif
 #ifdef CONFIG_PSRAM
 extern uint32_t __psram_heap_base;
 extern uint32_t __psram_limit;
 #endif
 
 static struct sys_heap ram_heap;
+#ifndef CONFIG_PSRAM
 static struct sys_heap wram_heap;
+#endif
 #ifdef CONFIG_PSRAM
 static struct sys_heap psram_heap;
 #endif
 static struct soc_heap_region soc_heap_regions[SOC_MULTI_HEAP_MAX_REGIONS];
 static size_t soc_heap_region_count;
 static bool soc_multi_heap_ready;
+static bool ram_heap_registered;
 #ifdef CONFIG_PSRAM
 static bool psram_heap_registered;
 #endif
@@ -211,21 +216,32 @@ static bool register_heap(const char *name, struct sys_heap *heap,
 static int soc_multi_heap_init(void) {
   uintptr_t ram_start = (uintptr_t)&__HeapBase;
   uintptr_t ram_end = (uintptr_t)&__HeapLimit;
+#ifndef CONFIG_PSRAM
   uintptr_t wram_start = (uintptr_t)&_heap_wifi_start;
   size_t wram_size = (size_t)&_heap_wifi_size;
+#endif
 
   sys_multi_heap_init(&soc_multi_heap, heap_choice_fn);
   soc_heap_region_count = 0U;
   soc_multi_heap_ready = false;
+	ram_heap_registered = false;
 #ifdef CONFIG_PSRAM
   psram_heap_registered = false;
 #endif
 
+#ifdef CONFIG_PSRAM
+  /* The PSRAM controller initializes at PRE_KERNEL_1 priority 0. */
+  soc_multi_heap_psram_add();
+#endif
+
   if (ram_end > ram_start) {
-    register_heap("ocram", &ram_heap, ram_start, ram_end - ram_start);
+    ram_heap_registered = register_heap("ocram", &ram_heap, ram_start,
+						    ram_end - ram_start);
   }
 
+#ifndef CONFIG_PSRAM
   register_heap("wram", &wram_heap, wram_start, wram_size);
+#endif
 
   soc_multi_heap_ready = soc_heap_region_count > 0U;
 
@@ -266,7 +282,7 @@ int soc_multi_heap_psram_add(void) {
 int soc_multi_heap_psram_add(void) { return 0; }
 #endif
 
-static void *soc_multi_aligned_alloc(size_t align, size_t size) {
+void *soc_multi_aligned_alloc(size_t align, size_t size) {
   k_spinlock_key_t key;
   void *p;
 
@@ -286,6 +302,21 @@ static void *soc_multi_aligned_alloc(size_t align, size_t size) {
   return p;
 }
 
+void *soc_multi_internal_aligned_alloc(size_t align, size_t size)
+{
+  k_spinlock_key_t key;
+  void *ptr;
+
+  if (!ram_heap_registered) {
+    return NULL;
+  }
+
+  key = k_spin_lock(&soc_multi_heap_lock);
+  ptr = sys_heap_aligned_alloc(&ram_heap, align, size);
+  k_spin_unlock(&soc_multi_heap_lock, key);
+  return ptr;
+}
+
 void *soc_multi_malloc(size_t size) {
   void *p = soc_multi_aligned_alloc(64, size);
 
@@ -295,7 +326,8 @@ void *soc_multi_malloc(size_t size) {
       if (p) {
         break;
       }
-      printf("%s mem err\r\n", __func__);
+      printf("%s size=%zu caller=%p mem err\r\n", __func__, size,
+             __builtin_return_address(0));
       k_msleep(1000);
     }
   }
@@ -499,7 +531,8 @@ soc_multi_heap_region_stats_get(struct soc_multi_heap_region_stats *regions,
 }
 
 /* Automatically initialize at system startup */
-SYS_INIT(soc_multi_heap_init, PRE_KERNEL_1, 0);
+/* PSRAM controller initialization runs at PRE_KERNEL_1 priority 0. */
+SYS_INIT(soc_multi_heap_init, PRE_KERNEL_1, 1);
 #if defined(CONFIG_MBEDTLS)
 SYS_INIT(soc_mbedtls_mem_init, POST_KERNEL, 0);
 #endif

@@ -1,0 +1,20 @@
+/*
+ * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include <qcom/qcc74x/qcc743i.dtsi>
+
+&soc {
+		gpio1: gpio1@20000944 {
+			compatible = "qcom,qcc74x-gpio";
+			reg = <0x20000944 0x1000>;
+			gpio-controller;
+			interrupts = <GPIO_INT0_IRQn IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			ngpios = <3>; /* 32..34 */
+			#gpio-cells = <2>;
+			#qcom,pin-cells = <2>;
+			status = "okay";
+		};
+};

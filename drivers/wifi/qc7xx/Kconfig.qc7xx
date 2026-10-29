@@ -23,6 +23,52 @@ menuconfig WIFI_QCC75X
 
 if WIFI_QCC74X || WIFI_QCC75X
 
+if WIFI_QCC74X
+
+config QCC74X_WIFI_HIGH_PERFORMANCE
+	bool "QCC748M single-stream Wi-Fi throughput profile"
+	depends on (BOARD_QCC748M_EVK || BOARD_QCC748M3_EVK) && PSRAM_COPY_CODE && NET_ZPERF
+	depends on NET_TCP && NET_BUF_FIXED_DATA_SIZE && NET_SOCKETS_SERVICE
+	default n
+	help
+	  Select the QCC748 FHOST throughput backend and enable the driver-side
+	  zero-copy RX and batched TX optimizations. This profile supports PDS1
+	  when its retained PSRAM configuration is selected; it remains intended
+	  for single-stream zperf workloads.
+
+config QCC74X_WIFI_RX_ZERO_COPY
+	bool "Wrap Wi-Fi RX payloads in external Zephyr network buffers"
+	default y if QCC74X_WIFI_HIGH_PERFORMANCE
+	default n
+	help
+	  Keep received FHOST buffers until the Zephyr network packet is released,
+	  avoiding the payload copy into a separate net_buf. This trades FHOST RX
+	  buffer lifetime for lower CPU use and should be enabled only on targets
+	  with enough Wi-Fi RX buffers for the expected receive queue depth.
+
+config QCC74X_WIFI_TX_BATCH_DEPTH
+	int "Maximum Wi-Fi TX copy buffers submitted together"
+	range 1 1 if !QCC74X_WIFI_HIGH_PERFORMANCE
+	range 1 10 if QCC74X_WIFI_HIGH_PERFORMANCE && (BOARD_QCC743M_EVK || QCC74X_PM_PDS15)
+	range 1 12 if QCC74X_WIFI_HIGH_PERFORMANCE && !BOARD_QCC743M_EVK && !QCC74X_PM_PDS15
+	default 12 if QCC74X_WIFI_HIGH_PERFORMANCE
+	default 1
+	help
+	  One sends each copied frame immediately. Larger values group TCP/UDP
+	  frames under a single FHOST TX lock. Keep the depth below the number
+	  of WRAM TX copy buffers (11 on constrained builds, 24 otherwise) so
+	  buffer allocation cannot wait for an unsubmitted batch.
+
+config QCC74X_WIFI_TX_BATCH_FLUSH_MS
+	int "Maximum Wi-Fi TX batch delay (ms)"
+	depends on QCC74X_WIFI_TX_BATCH_DEPTH > 1
+	range 1 20
+	default 2
+	help
+	  Submit a partial batch after this delay from the first queued frame.
+
+endif # WIFI_QCC74X
+
 config SOC_WIFI_MBEDTLS_CRYPTO
 	bool "Use MbedTLS crypto APIs"
 	default n
@@ -159,7 +205,8 @@ config SOC_WIFI_STA_RECONNECT
 
 	  While a connection or reconnection is in progress, a new Wi-Fi connect
 	  request is rejected with -EALREADY. Wait for the current connection
-	  attempt to complete before submitting another request.
+	  attempt to complete, or disconnect to cancel it, before submitting
+	  another request.
 
 config QC7XX_SOCKET_OFFLOAD
 	bool "QC7xx Socket Offload Support"

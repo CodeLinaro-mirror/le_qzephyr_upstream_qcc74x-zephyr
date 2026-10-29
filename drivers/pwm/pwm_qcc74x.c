@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -11,6 +11,7 @@
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/drivers/reset.h>
+#include <zephyr/pm/device.h>
 
 #include <hardware/glb_reg.h>
 #include <hardware/pwm_v2_reg.h>
@@ -44,7 +45,7 @@ struct pwm_qcc74x_config {
 
 /* PWM data. */
 struct pwm_qcc74x_data {
-	/* No runtime data needed for now, can be expanded later */
+	struct k_mutex lock; /* Protects shared register R-M-W sequences */
 };
 
 /**
@@ -57,26 +58,30 @@ struct pwm_qcc74x_data {
  */
 static bool pwm_qcc74x_check_pwm_status(const uint32_t base_reg, const bool expect_stopped)
 {
-	const int64_t start_time = k_uptime_get();
 	uint32_t reg_val = 0U;
 	bool is_expected = false;
 
-	while (true) {
+	/*
+	 * This is used by system-managed Device PM while the idle thread enters
+	 * and resumes PDS. Do not use k_msleep() here: that would enqueue the
+	 * idle thread in Zephyr's timeout queue. Do not use uptime for the
+	 * timeout either: the system clock can be paused during PDS resume.
+	 */
+	for (uint32_t elapsed_ms = 0U;
+	     elapsed_ms <= QC7XX_PWM_TIMEOUT_MS;
+	     elapsed_ms += QC7XX_PWM_STATUS_DELAY_CHECK_MS) {
 		reg_val = sys_read32(base_reg + PWM_MC0_CONFIG0_OFFSET);
 		reg_val &= PWM_STS_STOP;
 		is_expected = expect_stopped ? (reg_val != 0) : (reg_val == 0);
 		if (is_expected) {
-			break;
+			return true;
 		}
 
-		if (k_uptime_get() - start_time > QC7XX_PWM_TIMEOUT_MS) {
-			LOG_ERR("PWM failed to check PWM state within timeout.");
-			return false;
-		}
-		k_msleep(QC7XX_PWM_STATUS_DELAY_CHECK_MS); // prevent busy-waiting
+		k_busy_wait(QC7XX_PWM_STATUS_DELAY_CHECK_MS * USEC_PER_MSEC);
 	}
 
-	return true;
+	LOG_ERR("PWM failed to check PWM state within timeout.");
+	return false;
 }
 
 /**
@@ -379,9 +384,12 @@ void log_pin_information(const struct pinctrl_dev_config *const pcfg)
 static int pwm_qcc74x_init(const struct device *dev)
 {
 	const struct pwm_qcc74x_config *const config = dev->config;
+	struct pwm_qcc74x_data *data = dev->data;
 	uint32_t base_reg = 0U;
 	int32_t result = 0;
 	uint32_t clock_rate = 0U;
+
+	k_mutex_init(&data->lock);
 
 	base_reg = config->base_reg;
 
@@ -461,6 +469,7 @@ static int pwm_qcc74x_set_cycles(const struct device *dev, uint32_t channel, uin
 	LOG_DBG("Set cycles for QCC74x.");
 
 	const struct pwm_qcc74x_config *const config = dev->config;
+	struct pwm_qcc74x_data *data = dev->data;
 	uint32_t base_reg = config->base_reg;
 	uint16_t low_threshold = 0U;
 	int32_t result = 0;
@@ -482,15 +491,20 @@ static int pwm_qcc74x_set_cycles(const struct device *dev, uint32_t channel, uin
 		return -EINVAL;
 	}
 
+	k_mutex_lock(&data->lock, K_FOREVER);
+
 	if (pulse == 0U) {
 		handle_const_inactive_level(base_reg, channel);
+		k_mutex_unlock(&data->lock);
 		return 0;
 	}
 
 	if (pulse == period) {
 		handle_const_active_level(base_reg, channel);
+		k_mutex_unlock(&data->lock);
 		return 0;
 	}
+
 	uint16_t period_reg_val = (uint16_t)period;
 	uint16_t high_threshold = (uint16_t)pulse;
 
@@ -498,22 +512,26 @@ static int pwm_qcc74x_set_cycles(const struct device *dev, uint32_t channel, uin
 	result = pwm_qcc74x_config_set_period(base_reg, period_reg_val);
 	if (result != 0) {
 		LOG_ERR("Failed to configure period for PWM (%d)!", result);
+		k_mutex_unlock(&data->lock);
 		return result;
 	}
 
-	/* Set duty cycle */
+	/* Set duty cycle (per-channel register, no race) */
 	pwm_qcc74x_set_channel_threshold(base_reg, channel, low_threshold, high_threshold);
 
-	/* Configure polarity */
+	/* Configure polarity (R-M-W on shared CONFIG1) */
 	if ((flags & PWM_POLARITY_INVERTED) != 0) {
 		set_inverted_polarity(base_reg, channel);
 	} else {
 		set_normal_polarity(base_reg, channel);
 	}
 
-	/* Enable channel outputs */
+	/* Enable channel outputs (R-M-W on shared CONFIG1) */
 	pwm_qcc74x_positive_channel_start(base_reg, channel);
 	pwm_qcc74x_negative_channel_start(base_reg, channel);
+
+	k_mutex_unlock(&data->lock);
+
 	LOG_INF("Enabled positive and negative outputs for channel %d with period %d and pulse %d.",
 		channel, period_reg_val, high_threshold);
 
@@ -567,6 +585,71 @@ static struct pwm_driver_api pwm_qcc74x_driver_api = {
 	.get_cycles_per_sec = pwm_qcc74x_get_cycles_per_sec,
 };
 
+#ifdef CONFIG_PM_DEVICE
+static int pwm_qcc74x_pm_action(const struct device *dev,
+				enum pm_device_action action)
+{
+	const struct pwm_qcc74x_config *const config = dev->config;
+	uint32_t base_reg = config->base_reg;
+	int32_t result = 0;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		/* Disable all channel outputs */
+		for (uint32_t ch = 0; ch < QC7XX_PWM_MAX_CHANNELS; ch++) {
+			pwm_qcc74x_positive_channel_stop(base_reg, ch);
+			pwm_qcc74x_negative_channel_stop(base_reg, ch);
+		}
+		/* Stop PWM */
+		result = pwm_qcc74x_stop_pwm(base_reg);
+		if (result != 0) {
+			LOG_ERR("PM suspend: failed to stop PWM (%d)", result);
+			return result;
+		}
+		/* Gate clock */
+		result = clock_control_off(config->clock_dev,
+					   (clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (result != 0 && result != -ENOSYS) {
+			LOG_ERR("PM suspend: failed to disable clock (%d)", result);
+			return result;
+		}
+		LOG_DBG("PWM suspended.");
+		break;
+
+	case PM_DEVICE_ACTION_RESUME:
+		/* Re-enable clock */
+		result = clock_control_on(config->clock_dev,
+					  (clock_control_subsys_t)(uintptr_t)config->clock_id);
+		if (result != 0 && result != -EALREADY) {
+			LOG_ERR("PM resume: failed to enable clock (%d)", result);
+			return result;
+		}
+		/* Restore clock divider */
+		result = clock_control_configure(
+			config->clock_dev,
+			(clock_control_subsys_t)(uintptr_t)config->clock_id,
+			(void *)&config->clock_settings);
+		if (result != 0) {
+			LOG_ERR("PM resume: failed to configure clock (%d)", result);
+			return result;
+		}
+		/* Restart PWM */
+		result = pwm_qcc74x_start_pwm(base_reg);
+		if (result != 0) {
+			LOG_ERR("PM resume: failed to start PWM (%d)", result);
+			return result;
+		}
+		LOG_DBG("PWM resumed.");
+		break;
+
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_PM_DEVICE */
+
 #define PWM_QCC74X_INIT(inst)                                                                        \
 	PINCTRL_DT_INST_DEFINE(inst);                                                              \
 	static struct pwm_qcc74x_data pwm_qcc74x_data##inst;                                           \
@@ -583,8 +666,10 @@ static struct pwm_driver_api pwm_qcc74x_driver_api = {
 		.min_period_cycles = DT_INST_PROP_OR(inst, min_period_cycles, 2),                  \
 		.reset = RESET_DT_SPEC_INST_GET(inst),                                             \
 	};                                                                                         \
-	DEVICE_DT_INST_DEFINE(inst, pwm_qcc74x_init, NULL, &pwm_qcc74x_data##inst,                     \
-			      &pwm_qcc74x_config##inst, POST_KERNEL, CONFIG_PWM_INIT_PRIORITY,       \
+	PM_DEVICE_DT_INST_DEFINE(inst, pwm_qcc74x_pm_action);                                      \
+	DEVICE_DT_INST_DEFINE(inst, pwm_qcc74x_init, PM_DEVICE_DT_INST_GET(inst),                  \
+			      &pwm_qcc74x_data##inst, &pwm_qcc74x_config##inst,                    \
+			      POST_KERNEL, CONFIG_PWM_INIT_PRIORITY,                               \
 			      &pwm_qcc74x_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(PWM_QCC74X_INIT)

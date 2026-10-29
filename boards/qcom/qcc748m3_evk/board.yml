@@ -1,0 +1,9 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries
+# SPDX-License-Identifier: BSD-3-Clause
+
+board:
+  name: qcc748m3_evk
+  full_name: QCC748M-3 Evaluation Kit
+  vendor: qcom
+  socs:
+  - name: qcc7483

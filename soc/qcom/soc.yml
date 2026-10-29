@@ -6,12 +6,16 @@ family:
   series:
   - name: qcc74x
     socs:
-    - name: qcc743
-    - name: qcc744
-    - name: qcc748
+    - name: qcc7431
+    - name: qcc7442
+    - name: qcc7482
+    - name: qcc7483
   - name: qcc75x
     socs:
-    - name: qcc75x
-  - name: qcr373
+    - name: qcc7510
+    - name: qcc7512
+  - name: qcr3xx
     socs:
-    - name: qcr373
+    - name: qcr3034
+    - name: qcr3733
+    - name: qcr3734
