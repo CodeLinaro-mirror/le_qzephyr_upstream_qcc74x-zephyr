@@ -1,5 +1,5 @@
 diff --git a/core/psa_crypto_driver_wrappers.h b/core/psa_crypto_driver_wrappers.h
-index 9891d2ced..4eb216ab0 100644
+index 9891d2ced..639084e5d 100644
 --- a/core/psa_crypto_driver_wrappers.h
 +++ b/core/psa_crypto_driver_wrappers.h
 @@ -45,6 +45,14 @@
@@ -39,10 +39,10 @@ index 9891d2ced..4eb216ab0 100644
  
  #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
              return( mbedtls_psa_cipher_encrypt( attributes,
-@@ -1132,6 +1148,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt_setup(
+@@ -1131,6 +1147,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_encrypt_setup(
+             if( status != PSA_ERROR_NOT_SUPPORTED )
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
- #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
 +            status = qcc74x_transparent_cipher_encrypt_setup(
 +                &operation->ctx.qcc74x_transparent_driver_ctx,
@@ -56,13 +56,13 @@ index 9891d2ced..4eb216ab0 100644
 +            if( status != PSA_ERROR_NOT_SUPPORTED )
 +                return( status );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
  #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
              /* Fell through, meaning no accelerator supports this operation */
-             status = mbedtls_psa_cipher_encrypt_setup( &operation->ctx.mbedtls_ctx,
-@@ -1205,6 +1234,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_decrypt_setup(
+@@ -1204,6 +1233,19 @@ static inline psa_status_t psa_driver_wrapper_cipher_decrypt_setup(
+             if( status != PSA_ERROR_NOT_SUPPORTED )
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
- #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X)
 +            status = qcc74x_transparent_cipher_decrypt_setup(
 +                &operation->ctx.qcc74x_transparent_driver_ctx,
@@ -76,9 +76,9 @@ index 9891d2ced..4eb216ab0 100644
 +            if( status != PSA_ERROR_NOT_SUPPORTED )
 +                return( status );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
  #if defined(MBEDTLS_PSA_BUILTIN_CIPHER)
              /* Fell through, meaning no accelerator supports this operation */
-             status = mbedtls_psa_cipher_decrypt_setup( &operation->ctx.mbedtls_ctx,
 @@ -1274,6 +1316,12 @@ static inline psa_status_t psa_driver_wrapper_cipher_set_iv(
                          iv, iv_length ) );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
@@ -220,10 +220,10 @@ index 9891d2ced..4eb216ab0 100644
  #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
  
              /* Fell through, meaning no accelerator supports this operation */
-@@ -1799,6 +1912,20 @@ static inline psa_status_t psa_driver_wrapper_aead_decrypt(
+@@ -1798,6 +1911,20 @@ static inline psa_status_t psa_driver_wrapper_aead_decrypt(
+             if( status != PSA_ERROR_NOT_SUPPORTED )
                  return( status );
  #endif /* PSA_CRYPTO_DRIVER_TEST */
- #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
 +#if defined(PSA_CRYPTO_DRIVER_QCC74X_AEAD)
 +            status = qcc74x_aead_decrypt(
 +                        attributes,
@@ -238,6 +238,6 @@ index 9891d2ced..4eb216ab0 100644
 +            if( status != PSA_ERROR_NOT_SUPPORTED )
 +                return( status );
 +#endif /* PSA_CRYPTO_DRIVER_QCC74X_AEAD */
+ #endif /* PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT */
  
              /* Fell through, meaning no accelerator supports this operation */
- #if defined(MBEDTLS_PSA_BUILTIN_AEAD)
