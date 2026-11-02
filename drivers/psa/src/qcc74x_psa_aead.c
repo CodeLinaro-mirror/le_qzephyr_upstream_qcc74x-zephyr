@@ -157,19 +157,21 @@ static void gcm_ghash(const uint8_t *h, const uint8_t *aad, size_t aad_len,
  * Uses psa_cipher_encrypt with PSA_ALG_ECB_NO_PADDING to compute
  *   keystream = AES_ECB(K, counter_block)
  *
- * NOTE: For ECB mode, psa_cipher_encrypt treats the "iv" parameter as
- * the input plaintext. We pass the counter value as the input.
+ * The counter block is plaintext input. The public PSA cipher API has
+ * no explicit IV argument in ECB mode.
  * ================================================================ */
 static psa_status_t aes_ecb_block(const psa_key_attributes_t *key_attr,
                                    const uint8_t *input, uint8_t *output)
 {
-    size_t out_len;
-    return qcc74x_transparent_cipher_encrypt(
-        key_attr, NULL, 0,
-        PSA_ALG_ECB_NO_PADDING,
-        NULL, 0,               /* ECB ignores iv */
-        input, AES_BLOCK_SIZE,
-        output, AES_BLOCK_SIZE, &out_len);
+    size_t out_len = 0;
+    /* The SW-key path imported a real PSA key. Resolve its key bytes through
+     * the cipher API instead of passing NULL (which means OTP to the HAL).
+     * This dispatches cipher, not AEAD, so it does not recurse into GCM.
+     */
+    return psa_cipher_encrypt(psa_get_key_id(key_attr),
+                              PSA_ALG_ECB_NO_PADDING,
+                              input, AES_BLOCK_SIZE,
+                              output, AES_BLOCK_SIZE, &out_len);
 }
 
 /* ================================================================
@@ -237,6 +239,9 @@ psa_status_t qcc74x_aead_encrypt(
     }
 
 #ifdef CONFIG_QCC74X_AES_HWKEY
+    /* Actual transparent key bytes must not be replaced by an OTP key. */
+    if (key_buffer != NULL)
+        goto fallback_sw_enc;
     /* HW key path: skip psa_import_key, pass NULL to cipher for OTP key */
     psa_set_key_type(&key_attr, PSA_KEY_TYPE_AES);
     psa_set_key_bits(&key_attr, psa_get_key_bits(attributes));
@@ -439,11 +444,15 @@ psa_status_t qcc74x_aead_decrypt(
     }
 
 #ifdef CONFIG_QCC74X_AES_HWKEY
+    /* Actual transparent key bytes must not be replaced by an OTP key. */
+    if (key_buffer != NULL)
+        goto fallback_sw_dec;
     /* HW key path: skip psa_import_key, pass NULL to cipher for OTP key */
     psa_set_key_type(&key_attr, PSA_KEY_TYPE_AES);
     psa_set_key_bits(&key_attr, psa_get_key_bits(attributes));
     psa_set_key_algorithm(&key_attr, PSA_ALG_ECB_NO_PADDING);
-    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_DECRYPT);
+    /* GCM decrypt also uses AES encryption to generate CTR/tag keystream. */
+    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_ENCRYPT);
 
     /* Step 1: H = AES_ECB(K, 0^128) with HW key */
     {
@@ -518,7 +527,8 @@ fallback_sw_dec:
     psa_set_key_type(&key_attr, PSA_KEY_TYPE_AES);
     psa_set_key_bits(&key_attr, psa_get_key_bits(attributes));
     psa_set_key_algorithm(&key_attr, PSA_ALG_ECB_NO_PADDING);
-    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_DECRYPT);
+    /* GCM decrypt also uses AES encryption to generate CTR/tag keystream. */
+    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_ENCRYPT);
 
     status = psa_import_key(&key_attr, key_buffer, key_buffer_size, &key_id);
     if (status != PSA_SUCCESS) return status;

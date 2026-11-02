@@ -82,6 +82,10 @@ zephyr_include_directories(include)
 
 # 4. Activate the driver in the PSA dispatch layer.
 zephyr_compile_definitions(PSA_CRYPTO_DRIVER_QCC74X)
+# PSA's accelerator indicator is a C macro, not an application Kconfig
+# switch. Map our enabled cipher accelerator to the guarded PSA dispatch.
+zephyr_compile_definitions_ifdef(CONFIG_PSA_CRYPTO_DRIVER_QCC74X_AES
+                                 PSA_CRYPTO_ACCELERATOR_DRIVER_PRESENT)
 
 # 5. Sub-feature flags
 zephyr_compile_definitions_ifdef(CONFIG_PSA_CRYPTO_DRIVER_QCC74X_AES

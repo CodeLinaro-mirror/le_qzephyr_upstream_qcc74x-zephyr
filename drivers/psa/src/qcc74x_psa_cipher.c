@@ -37,6 +37,33 @@
 /* Extern: AES mutex defined in qcc74x_psa_init.c */
 extern struct k_mutex qcc74x_psa_aes_mutex;
 
+/* Synchronize DMA buffers; caller must not access them until completion. */
+static int aes_cache_prepare(const uint8_t *input, uint8_t *output, size_t len)
+{
+    int ret;
+    if (qc7xx_check_cache_addr(input)) {
+        ret = sys_cache_data_flush_range((void *)input, len);
+        if (ret != 0)
+            return ret;
+    }
+    if (qc7xx_check_cache_addr(output)) {
+        ret = sys_cache_data_flush_and_invd_range(output, len);
+        if (ret != 0)
+            return ret;
+    }
+    return 0;
+}
+
+static int aes_cache_complete(uint8_t *output, size_t len, int ret)
+{
+    if (qc7xx_check_cache_addr(output)) {
+        int cache_ret = sys_cache_data_invd_range(output, len);
+        if (cache_ret != 0)
+            return cache_ret;
+    }
+    return ret;
+}
+
 /* =========================================================================
  * Internal helpers
  * ======================================================================= */
@@ -88,12 +115,8 @@ static uint8_t keybits_to_link_key(uint16_t key_bits)
  * AES DMA engine to access it. We use a descriptor allocated during setup
  * and stored in the operation context.
  *
- * link_first is managed exclusively by this function. On the first call
- * (link_first == 1), the key and IV are loaded into the descriptor and
- * aes_newkey_dis/aes_newiv_dis are set to 0 (load new). On subsequent calls
- * (link_first == 0), aes_newkey_dis and aes_newiv_dis are set to 1 (reuse)
- * and the key fields are zeroed in the descriptor to avoid leaking key
- * material through PSRAM.
+ * Reload the operation's key and IV on every submission; another operation
+ * or a register-mode partial block may have changed the shared engine.
  *
  * @param dev      AES device handle
  * @param op       Operation context with link descriptor and state
@@ -108,8 +131,21 @@ static int aes_link_process(struct qc7xx_device_s *dev,
                             uint32_t len)
 {
     struct qc7xx_aes_link_s *link = op->link_desc;
+    int cache_ret = aes_cache_prepare(input, output, len);
+    if (cache_ret != 0)
+        return cache_ret;
+    /* HAL updates descriptor fields immediately before triggering DMA.
+     * Like hash, use the noncached alias for CPU/HAL descriptor accesses.
+     */
+    if (qc7xx_check_cache_addr(link)) {
+        cache_ret = sys_cache_data_flush_and_invd_range(link, sizeof(*link));
+        if (cache_ret != 0)
+            return cache_ret;
+        link = qc7xx_get_no_cache_addr(link);
+        if (!link)
+            return -EIO;
+    }
     uint32_t num_blocks = len / 16;
-    int first_call = op->link_first;
 
     /* Build the link descriptor */
     memset(link, 0, sizeof(*link));
@@ -119,9 +155,9 @@ static int aes_link_process(struct qc7xx_device_s *dev,
     /* [5] encrypt=0 / decrypt=1 */
     link->aes_dec_en = (op->is_encrypt) ? 0 : 1;
     /* [6] 0 = use new key from descriptor, 1 = reuse previous key */
-    link->aes_newkey_dis = first_call ? 0 : 1;
+    link->aes_newkey_dis = 0;
     /* [14] 0 = use new IV from descriptor, 1 = reuse previous IV */
-    link->aes_newiv_dis  = first_call ? 0 : 1;
+    link->aes_newiv_dis  = 0;
     /* [7] hardware key disabled */
     link->aes_hwkey_en = 0;
     /* [13:12] mode */
@@ -135,60 +171,18 @@ static int aes_link_process(struct qc7xx_device_s *dev,
     link->aes_srcaddr = (uint32_t)(uintptr_t)input;
     link->aes_dstaddr = (uint32_t)(uintptr_t)output;
 
-    /* IV — only consumed when aes_newiv_dis == 0 */
-    if (op->aes_mode != AES_MODE_ECB && first_call) {
-        link->aes_iv0 = ((uint32_t)op->iv[0]  << 24) | ((uint32_t)op->iv[1]  << 16) |
-                        ((uint32_t)op->iv[2]  << 8)  | (uint32_t)op->iv[3];
-        link->aes_iv1 = ((uint32_t)op->iv[4]  << 24) | ((uint32_t)op->iv[5]  << 16) |
-                        ((uint32_t)op->iv[6]  << 8)  | (uint32_t)op->iv[7];
-        link->aes_iv2 = ((uint32_t)op->iv[8]  << 24) | ((uint32_t)op->iv[9]  << 16) |
-                        ((uint32_t)op->iv[10] << 8)  | (uint32_t)op->iv[11];
-        link->aes_iv3 = ((uint32_t)op->iv[12] << 24) | ((uint32_t)op->iv[13] << 16) |
-                        ((uint32_t)op->iv[14] << 8)  | (uint32_t)op->iv[15];
-    }
-
-    /* Key — only consumed when aes_newkey_dis == 0 (first call) */
-    if (!first_call) {
-        /* Key data is already loaded in hardware from the first link call,
-         * and we set aes_newkey_dis = 1 to reuse it. Zero out key fields
-         * in the descriptor to avoid leaking key material through PSRAM.
-         */
-        link->aes_key0 = 0;
-        link->aes_key1 = 0;
-        link->aes_key2 = 0;
-        link->aes_key3 = 0;
-        link->aes_key4 = 0;
-        link->aes_key5 = 0;
-        link->aes_key6 = 0;
-        link->aes_key7 = 0;
-    } else {
-        /* Populate key (big-endian layout in link descriptor) */
-        uint32_t *k32 = (uint32_t *)op->key;
-        link->aes_key0 = __builtin_bswap32(k32[0]);  /* MSB */
-        link->aes_key1 = __builtin_bswap32(k32[1]);
-        link->aes_key2 = __builtin_bswap32(k32[2]);
-        link->aes_key3 = __builtin_bswap32(k32[3]);  /* 128-bit LSB / 192-bit */
-        if (op->key_bits > 128) {
-            link->aes_key4 = __builtin_bswap32(k32[4]);
-            link->aes_key5 = __builtin_bswap32(k32[5]);
-        }
-        if (op->key_bits > 192) {
-            link->aes_key6 = __builtin_bswap32(k32[6]);
-            link->aes_key7 = __builtin_bswap32(k32[7]);
-        }
-    }
+    /* Match the byte layout used by crypto_qcc74x.c. */
+    if (op->aes_mode != AES_MODE_ECB)
+        memcpy(&link->aes_iv0, op->iv, 16);
+    memcpy(&link->aes_key0, op->key, op->key_bits / 8);
 
     op->link_first = 0;
 
-    /* Flush the link descriptor from CPU cache to physical memory
-     * so the AES DMA engine sees the latest data.
-     */
-    if (qc7xx_check_cache_addr(link)) {
-        sys_cache_data_flush_range(link, sizeof(*link));
-    }
-
-    return qc7xx_aes_link_update(dev, (uint32_t)(uintptr_t)link,
-                                 input, output, len);
+    int ret = qc7xx_aes_link_update(dev, (uint32_t)(uintptr_t)link,
+                                    input, output, len);
+    ret = aes_cache_complete(output, len, ret);
+    mbedtls_platform_zeroize(&link->aes_key0, sizeof(op->key));
+    return ret;
 }
 
 /**
@@ -201,14 +195,18 @@ static int aes_process_one_block(struct qc7xx_device_s *dev,
                                  qcc74x_transparent_cipher_operation_t *op,
                                  const uint8_t *in, uint8_t *out)
 {
+    int ret = aes_cache_prepare(in, out, 16);
+    if (ret != 0)
+        return ret;
     if (op->is_encrypt)
-        return qc7xx_aes_encrypt(dev, in,
-                                 (op->aes_mode != AES_MODE_ECB) ? op->iv : NULL,
-                                 out, 16);
+        ret = qc7xx_aes_encrypt(dev, in,
+                                (op->aes_mode != AES_MODE_ECB) ? op->iv : NULL,
+                                out, 16);
     else
-        return qc7xx_aes_decrypt(dev, in,
-                                 (op->aes_mode != AES_MODE_ECB) ? op->iv : NULL,
-                                 out, 16);
+        ret = qc7xx_aes_decrypt(dev, in,
+                                (op->aes_mode != AES_MODE_ECB) ? op->iv : NULL,
+                                out, 16);
+    return aes_cache_complete(out, 16, ret);
 }
 
 /* =========================================================================
@@ -251,11 +249,18 @@ psa_status_t qcc74x_transparent_cipher_encrypt(
     if (output_size < input_length)
         return PSA_ERROR_BUFFER_TOO_SMALL;
 
+    ret = aes_cache_prepare(input, output, input_length);
+    if (ret != 0)
+        return PSA_ERROR_HARDWARE_FAILURE;
     dev = qc7xx_device_get_by_name(QC7XX_NAME_SEC_AES);
     if (!dev)
         return PSA_ERROR_NOT_SUPPORTED;
 
     k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
+    qc7xx_group0_request_aes_access(dev);
+    qc7xx_aes_link_deinit(dev);
+    qc7xx_aes_init(dev);
+    qc7xx_aes_set_mode(dev, aes_mode);
 
 #ifdef CONFIG_QCC74X_AES_HWKEY
     if (key_buffer == NULL) {
@@ -272,6 +277,8 @@ psa_status_t qcc74x_transparent_cipher_encrypt(
     const uint8_t *hw_iv = (iv_length > 0) ? iv : NULL;
 
     ret = qc7xx_aes_encrypt(dev, input, hw_iv, output, (uint32_t)input_length);
+    ret = aes_cache_complete(output, input_length, ret);
+    qc7xx_aes_deinit(dev);
 
     k_mutex_unlock(&qcc74x_psa_aes_mutex);
 
@@ -405,6 +412,7 @@ psa_status_t qcc74x_transparent_cipher_update(
     int ret = 0;
     int link_initialized = 0;
     int reg_initialized  = 0;
+    uint8_t *input_copy = NULL;
 
     *output_length = 0;
 
@@ -429,8 +437,19 @@ psa_status_t qcc74x_transparent_cipher_update(
         return PSA_ERROR_NOT_SUPPORTED;
     }
 
-    k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
+    /* Buffered output can overwrite input bytes needed by the next block. */
+    uintptr_t src = (uintptr_t)input, dst = (uintptr_t)output;
+    if (operation->partial_len &&
+        (src <= dst ? dst - src < input_length : src - dst < out_needed)) {
+        input_copy = k_malloc(input_length);
+        if (!input_copy)
+            return PSA_ERROR_INSUFFICIENT_MEMORY;
+        memcpy(input_copy, input, input_length);
+        in_ptr = input_copy;
+    }
 
+    k_mutex_lock(&qcc74x_psa_aes_mutex, K_FOREVER);
+    qc7xx_group0_request_aes_access(dev);
 
     /*
      * Step A: Flush the partial buffer using register-based single-block ops.
@@ -453,6 +472,7 @@ psa_status_t qcc74x_transparent_cipher_update(
         if (operation->aes_mode == AES_MODE_CBC && !operation->is_encrypt)
             memcpy(saved_ct, operation->partial, 16);
 
+        qc7xx_aes_link_deinit(dev);
         qc7xx_aes_init(dev);
         reg_initialized = 1;
         qc7xx_aes_set_mode(dev, operation->aes_mode);
@@ -509,29 +529,22 @@ psa_status_t qcc74x_transparent_cipher_update(
                 }
             }
 
-            /* Switch to link mode on first DMA call */
-            if (operation->link_first) {
-                qc7xx_aes_link_init(dev);
-                link_initialized = 1;
-            }
+            /* Restore link mode after other operations or partial blocks. */
+            qc7xx_aes_link_init(dev);
+            link_initialized = 1;
 
-            /* Flush input buffer from CPU cache to physical memory
-             * so the AES DMA engine reads the correct data.
-             */
-            if (qc7xx_check_cache_addr((const void *)in_ptr)) {
-                sys_cache_data_flush_range((void *)in_ptr, process_len);
-            }
-            /* Flush output buffer so DMA can write to it cleanly */
-            if (qc7xx_check_cache_addr((const void *)(output + out_pos))) {
-                sys_cache_data_flush_range(output + out_pos, process_len);
-            }
+            /* CBC decrypt must preserve ciphertext before in-place DMA. */
+            uint8_t saved_ct[16] = {0};
+            if (operation->aes_mode == AES_MODE_CBC && !operation->is_encrypt)
+                memcpy(saved_ct, in_ptr + process_len - 16, 16);
 
-            /* aes_link_process manages link_first internally */
             ret = aes_link_process(dev, operation,
                                    in_ptr, output + out_pos,
                                    (uint32_t)process_len);
-            if (ret != 0)
+            if (ret != 0) {
+                mbedtls_platform_zeroize(saved_ct, sizeof(saved_ct));
                 goto hw_error;
+            }
 
             /* After link update, the hardware has updated the IV internally.
              * We need to retrieve the final IV from the hardware for the
@@ -551,8 +564,10 @@ psa_status_t qcc74x_transparent_cipher_update(
                  * automatically via aes_newiv_dis=1, we only need it for
                  * the partial block flush above. Copy it from output.
                  */
-                memcpy(operation->iv, output + out_pos + process_len - 16, 16);
+                memcpy(operation->iv, operation->is_encrypt ?
+                       output + out_pos + process_len - 16 : saved_ct, 16);
             }
+            mbedtls_platform_zeroize(saved_ct, sizeof(saved_ct));
 
             out_pos      += process_len;
             in_ptr       += process_len;
@@ -560,6 +575,8 @@ psa_status_t qcc74x_transparent_cipher_update(
         }
     }
 
+    if (link_initialized)
+        qc7xx_aes_link_deinit(dev);
     k_mutex_unlock(&qcc74x_psa_aes_mutex);
 
     /* Step C: Buffer remaining bytes (< 16) */
@@ -568,6 +585,10 @@ psa_status_t qcc74x_transparent_cipher_update(
         operation->partial_len = in_remaining;
     }
 
+    if (input_copy) {
+        mbedtls_platform_zeroize(input_copy, input_length);
+        k_free(input_copy);
+    }
     *output_length = out_pos;
     return PSA_SUCCESS;
 
@@ -585,6 +606,10 @@ hw_error:
         qc7xx_aes_deinit(dev);
     }
     k_mutex_unlock(&qcc74x_psa_aes_mutex);
+    if (input_copy) {
+        mbedtls_platform_zeroize(input_copy, input_length);
+        k_free(input_copy);
+    }
     return PSA_ERROR_HARDWARE_FAILURE;
 #endif
 }
@@ -642,7 +667,12 @@ psa_status_t qcc74x_transparent_cipher_finish(
         qc7xx_aes_init(dev);
         qc7xx_aes_set_mode(dev, AES_MODE_CTR);
         qc7xx_aes_setkey(dev, operation->key, operation->key_bits);
-        ret = qc7xx_aes_encrypt(dev, padded, operation->iv, tmp, 16);
+        qc7xx_group0_request_aes_access(dev);
+        ret = aes_cache_prepare(padded, tmp, 16);
+        if (ret == 0) {
+            ret = qc7xx_aes_encrypt(dev, padded, operation->iv, tmp, 16);
+            ret = aes_cache_complete(tmp, 16, ret);
+        }
         qc7xx_aes_deinit(dev);
         k_mutex_unlock(&qcc74x_psa_aes_mutex);
 
